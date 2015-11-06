@@ -1,3 +1,9 @@
 [submodule "websocketpp"]
     path = websocketpp
     url = https://github.com/zaphoyd/websocketpp.git
+[submodule "daemon/fw/my_logger"]
+	path = daemon/fw/my_logger
+	url = https://github.com/aufgang001/my_logger
+[submodule "daemon/fw/my_panini_fib"]
+	path = daemon/fw/my_panini_fib
+	url = https://github.com/aufgang001/my_panini_fib

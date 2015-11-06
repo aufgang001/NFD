@@ -27,7 +27,7 @@
 #define NFD_DAEMON_FW_MULTICAST_STRATEGY_HPP
 
 #include "strategy.hpp"
-#include "my_logger.hpp"
+#include "my_logger/my_logger.hpp"
 
 namespace nfd {
 namespace fw {

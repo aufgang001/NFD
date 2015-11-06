@@ -2,8 +2,8 @@
 #define NFD_DAEMON_FW_MY_RONR_NAM_HPP
 
 #include "strategy.hpp"
-#include "my_logger.hpp"
-#include "my_panini_fib.hpp"
+#include "my_logger/my_logger.hpp"
+#include "my_panini_fib/my_panini_fib.hpp"
 
 #include <ndn-cxx/face.hpp>
 

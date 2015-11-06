@@ -99,6 +99,29 @@ BOOST_AUTO_TEST_CASE(MulticastFacesMap)
   BOOST_CHECK_NE(face1, face3);
 }
 
+BOOST_AUTO_TEST_CASE(UnsupportedFaceCreate)
+{
+  EthernetFactory factory;
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("ether://[08:00:27:01:01:01]"),
+                                       ndn::nfd::FACE_PERSISTENCY_PERMANENT,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("ether://[08:00:27:01:01:01]"),
+                                       ndn::nfd::FACE_PERSISTENCY_ON_DEMAND,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("ether://[08:00:27:01:01:01]"),
+                                       ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
+}
+
 BOOST_AUTO_TEST_CASE(SendPacket)
 {
   if (m_interfaces.empty()) {
@@ -113,7 +136,7 @@ BOOST_AUTO_TEST_CASE(SendPacket)
 
   BOOST_REQUIRE(static_cast<bool>(face));
   BOOST_CHECK_EQUAL(face->isLocal(), false);
-  BOOST_CHECK_EQUAL(face->isOnDemand(), false);
+  BOOST_CHECK_EQUAL(face->getPersistency(), ndn::nfd::FACE_PERSISTENCY_PERSISTENT);
   BOOST_CHECK_EQUAL(face->isMultiAccess(), true);
   BOOST_CHECK_EQUAL(face->getRemoteUri().toString(),
                     "ether://[" + ethernet::getDefaultMulticastAddress().toString() + "]");
@@ -178,22 +201,24 @@ BOOST_AUTO_TEST_CASE(ProcessIncomingPacket)
   face->onReceiveData.connect([&recDatas] (const Data& d) { recDatas.push_back(d); });
 
   // check that packet data is not accessed if pcap didn't capture anything (caplen == 0)
-  static const pcap_pkthdr header1{};
-  face->processIncomingPacket(&header1, nullptr);
+  static const pcap_pkthdr zeroHeader{};
+  face->processIncomingPacket(&zeroHeader, nullptr);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 0);
   BOOST_CHECK_EQUAL(recInterests.size(), 0);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);
 
   // runt frame (too short)
-  static const pcap_pkthdr header2{{}, ethernet::HDR_LEN + 6};
+  pcap_pkthdr runtHeader{};
+  runtHeader.caplen = ethernet::HDR_LEN + 6;
   static const uint8_t packet2[ethernet::HDR_LEN + 6]{};
-  face->processIncomingPacket(&header2, packet2);
+  face->processIncomingPacket(&runtHeader, packet2);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 0);
   BOOST_CHECK_EQUAL(recInterests.size(), 0);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);
 
   // valid frame, but TLV block has invalid length
-  static const pcap_pkthdr header3{{}, ethernet::HDR_LEN + ethernet::MIN_DATA_LEN};
+  pcap_pkthdr validHeader{};
+  validHeader.caplen = ethernet::HDR_LEN + ethernet::MIN_DATA_LEN;
   static const uint8_t packet3[ethernet::HDR_LEN + ethernet::MIN_DATA_LEN]{
     0x01, 0x00, 0x5e, 0x00, 0x17, 0xaa, // destination address
     0x02, 0x00, 0x00, 0x00, 0x00, 0x02, // source address
@@ -201,13 +226,12 @@ BOOST_AUTO_TEST_CASE(ProcessIncomingPacket)
     tlv::NdnlpData,   // TLV type
     0xfd, 0xff, 0xff  // TLV length (invalid because greater than buffer size)
   };
-  face->processIncomingPacket(&header3, packet3);
+  face->processIncomingPacket(&validHeader, packet3);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 0);
   BOOST_CHECK_EQUAL(recInterests.size(), 0);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);
 
   // valid frame, but TLV block has invalid type
-  static const pcap_pkthdr header4{{}, ethernet::HDR_LEN + ethernet::MIN_DATA_LEN};
   static const uint8_t packet4[ethernet::HDR_LEN + ethernet::MIN_DATA_LEN]{
     0x01, 0x00, 0x5e, 0x00, 0x17, 0xaa, // destination address
     0x02, 0x00, 0x00, 0x00, 0x00, 0x02, // source address
@@ -215,13 +239,12 @@ BOOST_AUTO_TEST_CASE(ProcessIncomingPacket)
     0x00,             // TLV type (invalid)
     0x00              // TLV length
   };
-  face->processIncomingPacket(&header4, packet4);
+  face->processIncomingPacket(&validHeader, packet4);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 2);
   BOOST_CHECK_EQUAL(recInterests.size(), 0);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);
 
   // valid frame and valid NDNLP header, but invalid payload
-  static const pcap_pkthdr header5{{}, ethernet::HDR_LEN + ethernet::MIN_DATA_LEN};
   static const uint8_t packet5[ethernet::HDR_LEN + ethernet::MIN_DATA_LEN]{
     0x01, 0x00, 0x5e, 0x00, 0x17, 0xaa, // destination address
     0x02, 0x00, 0x00, 0x00, 0x00, 0x02, // source address
@@ -233,13 +256,12 @@ BOOST_AUTO_TEST_CASE(ProcessIncomingPacket)
     0x00,             // NDN TLV type (invalid)
     0x00              // NDN TLV length
   };
-  face->processIncomingPacket(&header5, packet5);
+  face->processIncomingPacket(&validHeader, packet5);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 18);
   BOOST_CHECK_EQUAL(recInterests.size(), 0);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);
 
   // valid frame, valid NDNLP header, and valid NDN (interest) packet
-  static const pcap_pkthdr header6{{}, ethernet::HDR_LEN + ethernet::MIN_DATA_LEN};
   static const uint8_t packet6[ethernet::HDR_LEN + ethernet::MIN_DATA_LEN]{
     0x01, 0x00, 0x5e, 0x00, 0x17, 0xaa, // destination address
     0x02, 0x00, 0x00, 0x00, 0x00, 0x02, // source address
@@ -253,7 +275,7 @@ BOOST_AUTO_TEST_CASE(ProcessIncomingPacket)
     0x03, 0x66, 0x6f, 0x6f, 0x0a, 0x04,
     0x03, 0xef, 0xe9, 0x7c
   };
-  face->processIncomingPacket(&header6, packet6);
+  face->processIncomingPacket(&validHeader, packet6);
   BOOST_CHECK_EQUAL(face->getCounters().getNInBytes(), 56);
   BOOST_CHECK_EQUAL(recInterests.size(), 1);
   BOOST_CHECK_EQUAL(recDatas.size(), 0);

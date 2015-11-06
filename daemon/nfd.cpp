@@ -25,32 +25,52 @@
 
 #include "nfd.hpp"
 
+#include "core/global-io.hpp"
 #include "core/logger-factory.hpp"
 #include "core/privilege-helper.hpp"
+#include "core/config-file.hpp"
 #include "fw/forwarder.hpp"
 #include "face/null-face.hpp"
-#include "mgmt/internal-face.hpp"
+#include "face/internal-face.hpp"
 #include "mgmt/fib-manager.hpp"
 #include "mgmt/face-manager.hpp"
 #include "mgmt/strategy-choice-manager.hpp"
-#include "mgmt/status-server.hpp"
-#include "core/config-file.hpp"
+#include "mgmt/forwarder-status-manager.hpp"
 #include "mgmt/general-config-section.hpp"
 #include "mgmt/tables-config-section.hpp"
+#include "mgmt/command-validator.hpp"
+
+#include <ndn-cxx/mgmt/dispatcher.hpp>
 
 namespace nfd {
 
+NFD_LOG_INIT("Nfd");
+
 static const std::string INTERNAL_CONFIG = "internal://nfd.conf";
+
+static inline ndn::util::NetworkMonitor*
+makeNetworkMonitor()
+{
+  try {
+    return new ndn::util::NetworkMonitor(getGlobalIoService());
+  }
+  catch (const ndn::util::NetworkMonitor::Error& e) {
+    NFD_LOG_WARN(e.what());
+    return nullptr;
+  }
+}
 
 Nfd::Nfd(const std::string& configFile, ndn::KeyChain& keyChain)
   : m_configFile(configFile)
   , m_keyChain(keyChain)
+  , m_networkMonitor(makeNetworkMonitor())
 {
 }
 
 Nfd::Nfd(const ConfigSection& config, ndn::KeyChain& keyChain)
   : m_configSection(config)
   , m_keyChain(keyChain)
+  , m_networkMonitor(makeNetworkMonitor())
 {
 }
 
@@ -70,11 +90,23 @@ Nfd::initialize()
 
   initializeManagement();
 
-  m_forwarder->getFaceTable().addReserved(make_shared<NullFace>(), FACEID_NULL);
-  m_forwarder->getFaceTable().addReserved(make_shared<NullFace>(FaceUri("contentstore://")),
-                                          FACEID_CONTENT_STORE);
+  FaceTable& faceTable = m_forwarder->getFaceTable();
+  faceTable.addReserved(face::makeNullFace(), FACEID_NULL);
+  faceTable.addReserved(face::makeNullFace(FaceUri("contentstore://")), FACEID_CONTENT_STORE);
 
   PrivilegeHelper::drop();
+
+  if (m_networkMonitor) {
+    m_networkMonitor->onNetworkStateChanged.connect([this] {
+        // delay stages, so if multiple events are triggered in short sequence,
+        // only one auto-detection procedure is triggered
+        m_reloadConfigEvent = scheduler::schedule(time::seconds(5),
+          [this] {
+            NFD_LOG_INFO("Network change detected, reloading face section of the config file...");
+            this->reloadConfigFileFaceSection();
+          });
+      });
+  }
 }
 
 void
@@ -112,18 +144,26 @@ ignoreRibAndLogSections(const std::string& filename, const std::string& sectionN
 void
 Nfd::initializeManagement()
 {
-  m_internalFace = make_shared<InternalFace>();
+  std::tie(m_internalFace, m_internalClientFace) = face::makeInternalFace(m_keyChain);
+  m_forwarder->getFaceTable().addReserved(m_internalFace, FACEID_INTERNAL_FACE);
+  m_dispatcher.reset(new ndn::mgmt::Dispatcher(*m_internalClientFace, m_keyChain));
+
+  m_validator.reset(new CommandValidator());
 
   m_fibManager.reset(new FibManager(m_forwarder->getFib(),
                                     bind(&Forwarder::getFace, m_forwarder.get(), _1),
-                                    m_internalFace, m_keyChain));
+                                    *m_dispatcher,
+                                    *m_validator));
 
-  m_faceManager.reset(new FaceManager(m_forwarder->getFaceTable(), m_internalFace, m_keyChain));
+  m_faceManager.reset(new FaceManager(m_forwarder->getFaceTable(),
+                                      *m_dispatcher,
+                                      *m_validator));
 
   m_strategyChoiceManager.reset(new StrategyChoiceManager(m_forwarder->getStrategyChoice(),
-                                                          m_internalFace, m_keyChain));
+                                                          *m_dispatcher,
+                                                          *m_validator));
 
-  m_statusServer.reset(new StatusServer(m_internalFace, *m_forwarder, m_keyChain));
+  m_forwarderStatusManager.reset(new ForwarderStatusManager(*m_forwarder, *m_dispatcher));
 
   ConfigFile config(&ignoreRibAndLogSections);
   general::setConfigFile(config);
@@ -132,12 +172,11 @@ Nfd::initializeManagement()
                                    m_forwarder->getPit(),
                                    m_forwarder->getFib(),
                                    m_forwarder->getStrategyChoice(),
-                                   m_forwarder->getMeasurements());
+                                   m_forwarder->getMeasurements(),
+                                   m_forwarder->getNetworkRegionTable());
   tablesConfig.setConfigFile(config);
 
-  m_internalFace->getValidator().setConfigFile(config);
-
-  m_forwarder->getFaceTable().addReserved(m_internalFace, FACEID_INTERNAL_FACE);
+  m_validator->setConfigFile(config);
 
   m_faceManager->setConfigFile(config);
 
@@ -154,8 +193,10 @@ Nfd::initializeManagement()
   tablesConfig.ensureTablesAreConfigured();
 
   // add FIB entry for NFD Management Protocol
-  shared_ptr<fib::Entry> entry = m_forwarder->getFib().insert("/localhost/nfd").first;
+  Name topPrefix("/localhost/nfd");
+  auto entry = m_forwarder->getFib().insert(topPrefix).first;
   entry->addNextHop(m_internalFace, 0);
+  m_dispatcher->addTopPrefix(topPrefix, false);
 }
 
 void
@@ -174,11 +215,27 @@ Nfd::reloadConfigFile()
                                    m_forwarder->getPit(),
                                    m_forwarder->getFib(),
                                    m_forwarder->getStrategyChoice(),
-                                   m_forwarder->getMeasurements());
+                                   m_forwarder->getMeasurements(),
+                                   m_forwarder->getNetworkRegionTable());
 
   tablesConfig.setConfigFile(config);
 
-  m_internalFace->getValidator().setConfigFile(config);
+  m_validator->setConfigFile(config);
+  m_faceManager->setConfigFile(config);
+
+  if (!m_configFile.empty()) {
+    config.parse(m_configFile, false);
+  }
+  else {
+    config.parse(m_configSection, false, INTERNAL_CONFIG);
+  }
+}
+
+void
+Nfd::reloadConfigFileFaceSection()
+{
+  // reload only face_system section of the config file to re-initialize multicast faces
+  ConfigFile config(&ConfigFile::ignoreUnknownSection);
   m_faceManager->setConfigFile(config);
 
   if (!m_configFile.empty()) {

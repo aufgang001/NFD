@@ -24,7 +24,8 @@
  */
 
 #include "udp-channel.hpp"
-#include "udp-face.hpp"
+#include "generic-link-service.hpp"
+#include "unicast-udp-transport.hpp"
 #include "core/global-io.hpp"
 
 namespace nfd {
@@ -67,12 +68,13 @@ UdpChannel::listen(const FaceCreatedCallback& onFaceCreated,
 
 void
 UdpChannel::connect(const udp::Endpoint& remoteEndpoint,
+                    ndn::nfd::FacePersistency persistency,
                     const FaceCreatedCallback& onFaceCreated,
                     const ConnectFailedCallback& onConnectFailed)
 {
-  shared_ptr<UdpFace> face;
+  shared_ptr<face::LpFaceWrapper> face;
   try {
-    face = createFace(remoteEndpoint, false).second;
+    face = createFace(remoteEndpoint, persistency).second;
   }
   catch (const boost::system::system_error& e) {
     NFD_LOG_WARN("[" << m_localEndpoint << "] Connect failed: " << e.what());
@@ -92,16 +94,21 @@ UdpChannel::size() const
   return m_channelFaces.size();
 }
 
-std::pair<bool, shared_ptr<UdpFace>>
-UdpChannel::createFace(const udp::Endpoint& remoteEndpoint, bool isOnDemand)
+std::pair<bool, shared_ptr<face::LpFaceWrapper>>
+UdpChannel::createFace(const udp::Endpoint& remoteEndpoint, ndn::nfd::FacePersistency persistency)
 {
   auto it = m_channelFaces.find(remoteEndpoint);
   if (it != m_channelFaces.end()) {
     // we already have a face for this endpoint, just reuse it
-    if (!isOnDemand)
-      // only on-demand -> non-on-demand transition is allowed
-      it->second->setOnDemand(false);
-    return {false, it->second};
+    auto face = it->second;
+    // only on-demand -> persistent -> permanent transition is allowed
+    bool isTransitionAllowed = persistency != face->getPersistency() &&
+                               (face->getPersistency() == ndn::nfd::FACE_PERSISTENCY_ON_DEMAND ||
+                                persistency == ndn::nfd::FACE_PERSISTENCY_PERMANENT);
+    if (isTransitionAllowed) {
+      face->setPersistency(persistency);
+    }
+    return {false, face};
   }
 
   // else, create a new face
@@ -110,15 +117,18 @@ UdpChannel::createFace(const udp::Endpoint& remoteEndpoint, bool isOnDemand)
   socket.bind(m_localEndpoint);
   socket.connect(remoteEndpoint);
 
-  auto face = make_shared<UdpFace>(FaceUri(remoteEndpoint), FaceUri(m_localEndpoint),
-                                   std::move(socket), isOnDemand, m_idleFaceTimeout);
+  auto linkService = make_unique<face::GenericLinkService>();
+  auto transport = make_unique<face::UnicastUdpTransport>(std::move(socket), persistency, m_idleFaceTimeout);
+  auto lpFace = make_unique<face::LpFace>(std::move(linkService), std::move(transport));
+  auto face = make_shared<face::LpFaceWrapper>(std::move(lpFace));
 
+  face->setPersistency(persistency);
   face->onFail.connectSingleShot([this, remoteEndpoint] (const std::string&) {
     NFD_LOG_TRACE("Erasing " << remoteEndpoint << " from channel face map");
     m_channelFaces.erase(remoteEndpoint);
   });
-  m_channelFaces[remoteEndpoint] = face;
 
+  m_channelFaces[remoteEndpoint] = face;
   return {true, face};
 }
 
@@ -141,9 +151,9 @@ UdpChannel::handleNewPeer(const boost::system::error_code& error,
   NFD_LOG_DEBUG("[" << m_localEndpoint << "] New peer " << m_remoteEndpoint);
 
   bool created;
-  shared_ptr<UdpFace> face;
+  shared_ptr<face::LpFaceWrapper> face;
   try {
-    std::tie(created, face) = createFace(m_remoteEndpoint, true);
+    std::tie(created, face) = createFace(m_remoteEndpoint, ndn::nfd::FACE_PERSISTENCY_ON_DEMAND);
   }
   catch (const boost::system::system_error& e) {
     NFD_LOG_WARN("[" << m_localEndpoint << "] Failed to create face for peer "
@@ -157,7 +167,7 @@ UdpChannel::handleNewPeer(const boost::system::error_code& error,
     onFaceCreated(face);
 
   // dispatch the datagram to the face for processing
-  face->receiveDatagram(m_inputBuffer, nBytesReceived, error);
+  static_cast<face::UnicastUdpTransport*>(face->getLpFace()->getTransport())->receiveDatagram(m_inputBuffer, nBytesReceived, error);
 
   m_socket.async_receive_from(boost::asio::buffer(m_inputBuffer, ndn::MAX_NDN_PACKET_SIZE),
                               m_remoteEndpoint,

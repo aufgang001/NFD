@@ -1,12 +1,12 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /**
- * Copyright (c) 2014,  Regents of the University of California,
- *                      Arizona Board of Regents,
- *                      Colorado State University,
- *                      University Pierre & Marie Curie, Sorbonne University,
- *                      Washington University in St. Louis,
- *                      Beijing Institute of Technology,
- *                      The University of Memphis
+ * Copyright (c) 2014-2015,  Regents of the University of California,
+ *                           Arizona Board of Regents,
+ *                           Colorado State University,
+ *                           University Pierre & Marie Curie, Sorbonne University,
+ *                           Washington University in St. Louis,
+ *                           Beijing Institute of Technology,
+ *                           The University of Memphis.
  *
  * This file is part of NFD (Named Data Networking Forwarding Daemon).
  * See AUTHORS.md for complete list of NFD authors and contributors.
@@ -34,43 +34,53 @@ class Channel;
 class Face;
 
 /**
- * \brief Prototype for the callback called when face is created
- *        (as a response to incoming connection or after connection
- *        is established)
+ * \brief Prototype for the callback that is invoked when the face
+ *        is created (as a response to incoming connection or after
+ *        connection is established)
  */
 typedef function<void(const shared_ptr<Face>& newFace)> FaceCreatedCallback;
 
 /**
- * \brief Prototype for the callback that is called when face is failed to
- *        get created
+ * \brief Prototype for the callback that is invoked when the face
+ *        fails to be created
  */
-typedef function<void(const std::string& reason)> FaceConnectFailedCallback;
+typedef function<void(const std::string& reason)> FaceCreationFailedCallback;
 
 
+/**
+ * \brief Abstract base class for all protocol factories
+ */
 class ProtocolFactory
 {
 public:
   /**
-   * \brief Base class for all exceptions thrown by channel factories
+   * \brief Base class for all exceptions thrown by protocol factories
    */
-  struct Error : public std::runtime_error
+  class Error : public std::runtime_error
   {
-    Error(const std::string& what) : std::runtime_error(what) {}
+  public:
+    explicit
+    Error(const std::string& what)
+      : std::runtime_error(what)
+    {
+    }
   };
 
-  /** \brief Try to create Face using the supplied Face URI
+  /** \brief Try to create Face using the supplied FaceUri
    *
-   * This method should automatically choose channel, based on supplied Face URI
+   * This method should automatically choose channel, based on supplied FaceUri
    * and create face.
    *
-   * \throws Factory::Error if Factory does not support connect operation
+   * \throw Error Factory does not support connect operation
+   * \throw Error specified \p persistency is not supported
    */
   virtual void
   createFace(const FaceUri& uri,
+             ndn::nfd::FacePersistency persistency,
              const FaceCreatedCallback& onCreated,
-             const FaceConnectFailedCallback& onConnectFailed) = 0;
+             const FaceCreationFailedCallback& onConnectFailed) = 0;
 
-  virtual std::list<shared_ptr<const Channel>>
+  virtual std::vector<shared_ptr<const Channel>>
   getChannels() const = 0;
 };
 

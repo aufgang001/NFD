@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.abspath('.'))
 # ones.
 extensions = [
     'sphinx.ext.todo',
-    'redmine_issue',
+    'redmine_issue'
 ]
 
 def addExtensionIfExists(extension):
@@ -241,7 +241,6 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('manpages/nfd', 'nfd', u'Named Data Networking Forwarding Daemon', None, 1),
-    ('manpages/nrd', 'nrd', u'NFD RIB Daemon', None, 1),
     ('manpages/ndn-autoconfig-server', 'ndn-autoconfig-server',
         u'NFD Auto-configuration Server', None, 1),
     ('manpages/ndn-autoconfig', 'ndn-autoconfig',
@@ -261,7 +260,7 @@ man_pages = [
 #man_show_urls = False
 
 doxylink = {
-  'NFD' : ('NFD.tag', 'doxygen/'),
+  'nfd' : ('NFD.tag', 'doxygen/'),
 }
 
 if os.getenv('GOOGLE_ANALYTICS', None):

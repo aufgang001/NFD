@@ -25,20 +25,17 @@
 
 #include "broadcast-strategy.hpp"
 
-
 namespace nfd {
 namespace fw {
 
-const Name BroadcastStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/broadcast/%FD%01");
+NFD_LOG_INIT("BroadcastStrategy");
+
+const Name BroadcastStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/broadcast/%FD%02");
 NFD_REGISTER_STRATEGY(BroadcastStrategy);
 
 BroadcastStrategy::BroadcastStrategy(Forwarder& forwarder, const Name& name)
-  : Strategy(forwarder, name)
-  , m_my_logger()
-{
-}
-
-BroadcastStrategy::~BroadcastStrategy()
+  : MulticastStrategy(forwarder, name)
+  , m_isFirstUse(true)
 {
 }
 
@@ -48,26 +45,13 @@ BroadcastStrategy::afterReceiveInterest(const Face& inFace,
                    shared_ptr<fib::Entry> fibEntry,
                    shared_ptr<pit::Entry> pitEntry)
 {
-    m_my_logger.log("broadcast", "afterReceiveInterest", interest.getName().toUri());
-
-  const fib::NextHopList& nexthops = fibEntry->getNextHops();
-
-  for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
-    shared_ptr<Face> outFace = it->getFace();
-    if (pitEntry->canForwardTo(*outFace)) {
-      this->sendInterest(pitEntry, outFace);
-    }
+  if (m_isFirstUse) {
+    NFD_LOG_WARN("The broadcast strategy has been renamed as multicast strategy. "
+                 "Use ndn:/localhost/nfd/strategy/multicast to select the multicast strategy.");
+    m_isFirstUse = false;
   }
 
-  if (!pitEntry->hasUnexpiredOutRecords()) {
-    this->rejectPendingInterest(pitEntry);
-  }
-}
-
-void BroadcastStrategy::beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
-                                       const Face& inFace, const Data& data)
-{
-    m_my_logger.log("broadcast", "beforeSatisfyInterest", data.getName().toUri());
+  this->MulticastStrategy::afterReceiveInterest(inFace, interest, fibEntry, pitEntry);
 }
 
 } // namespace fw

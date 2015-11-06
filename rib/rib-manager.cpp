@@ -73,14 +73,15 @@ const size_t RibManager::LIST_COMMAND_NCOMPS = LIST_COMMAND_PREFIX.size();
 
 const time::seconds RibManager::ACTIVE_FACE_FETCH_INTERVAL = time::seconds(300);
 
-RibManager::RibManager(ndn::Face& face)
+RibManager::RibManager(ndn::Face& face, ndn::KeyChain& keyChain)
   : m_face(face)
+  , m_keyChain(keyChain)
   , m_nfdController(m_face, m_keyChain)
   , m_localhostValidator(m_face)
   , m_localhopValidator(m_face)
   , m_faceMonitor(m_face)
   , m_isLocalhopEnabled(false)
-  , m_remoteRegistrator(m_nfdController, m_keyChain, m_managedRib)
+  , m_prefixPropagator(m_nfdController, m_keyChain, m_managedRib)
   , m_ribStatusPublisher(m_managedRib, face, LIST_COMMAND_PREFIX, m_keyChain)
   , m_fibUpdater(m_managedRib, m_nfdController)
   , m_signedVerbDispatch(SIGNED_COMMAND_VERBS,
@@ -144,7 +145,7 @@ RibManager::onConfig(const ConfigSection& configSection,
                      bool isDryRun,
                      const std::string& filename)
 {
-  bool isRemoteRegisterEnabled = false;
+  bool isAutoPrefixPropagatorEnabled = false;
 
   for (const auto& item : configSection) {
     if (item.first == "localhost_security") {
@@ -154,24 +155,24 @@ RibManager::onConfig(const ConfigSection& configSection,
       m_localhopValidator.load(item.second, filename);
       m_isLocalhopEnabled = true;
     }
-    else if (item.first == "remote_register") {
-      m_remoteRegistrator.loadConfig(item.second);
-      isRemoteRegisterEnabled = true;
+    else if (item.first == "auto_prefix_propagate") {
+      m_prefixPropagator.loadConfig(item.second);
+      isAutoPrefixPropagatorEnabled = true;
 
       // Avoid other actions when isDryRun == true
       if (isDryRun) {
         continue;
       }
 
-      m_remoteRegistrator.enable();
+      m_prefixPropagator.enable();
     }
     else {
-      throw Error("Unrecognized rib property: " + item.first);
+      BOOST_THROW_EXCEPTION(Error("Unrecognized rib property: " + item.first));
     }
   }
 
-  if (!isRemoteRegisterEnabled) {
-    m_remoteRegistrator.disable();
+  if (!isAutoPrefixPropagatorEnabled) {
+    m_prefixPropagator.disable();
   }
 }
 
@@ -570,7 +571,7 @@ RibManager::onNrdCommandPrefixAddNextHopSuccess(const Name& prefix,
 void
 RibManager::onNrdCommandPrefixAddNextHopError(const Name& name, const std::string& msg)
 {
-  throw Error("Error in setting interest filter (" + name.toUri() + "): " + msg);
+  BOOST_THROW_EXCEPTION(Error("Error in setting interest filter (" + name.toUri() + "): " + msg));
 }
 
 void
@@ -585,7 +586,7 @@ RibManager::onControlHeaderError(uint32_t code, const std::string& reason)
   std::ostringstream os;
   os << "Couldn't enable local control header "
      << "(code: " << code << ", info: " << reason << ")";
-  throw Error(os.str());
+  BOOST_THROW_EXCEPTION(Error(os.str()));
 }
 
 void

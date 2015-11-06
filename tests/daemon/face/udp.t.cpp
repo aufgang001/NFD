@@ -24,7 +24,6 @@
  */
 
 #include "face/udp-channel.hpp"
-#include "face/udp-face.hpp"
 #include "face/udp-factory.hpp"
 
 #include "core/network-interface.hpp"
@@ -35,29 +34,26 @@
 namespace nfd {
 namespace tests {
 
-BOOST_FIXTURE_TEST_SUITE(FaceUdp, BaseFixture)
+BOOST_AUTO_TEST_SUITE(Face)
+BOOST_FIXTURE_TEST_SUITE(TestUdp, BaseFixture)
+
+using nfd::Face;
 
 BOOST_AUTO_TEST_CASE(GetChannels)
 {
   UdpFactory factory;
   BOOST_REQUIRE_EQUAL(factory.getChannels().empty(), true);
 
-  std::vector<shared_ptr<const Channel> > expectedChannels;
-
+  std::vector<shared_ptr<const Channel>> expectedChannels;
   expectedChannels.push_back(factory.createChannel("127.0.0.1", "20070"));
   expectedChannels.push_back(factory.createChannel("127.0.0.1", "20071"));
   expectedChannels.push_back(factory.createChannel("::1", "20071"));
 
-  std::list<shared_ptr<const Channel> > channels = factory.getChannels();
-  for (std::list<shared_ptr<const Channel> >::const_iterator i = channels.begin();
-       i != channels.end(); ++i)
-    {
-      std::vector<shared_ptr<const Channel> >::iterator pos =
-        std::find(expectedChannels.begin(), expectedChannels.end(), *i);
-
-      BOOST_REQUIRE(pos != expectedChannels.end());
-      expectedChannels.erase(pos);
-    }
+  for (const auto& i : factory.getChannels()) {
+    auto pos = std::find(expectedChannels.begin(), expectedChannels.end(), i);
+    BOOST_REQUIRE(pos != expectedChannels.end());
+    expectedChannels.erase(pos);
+  }
 
   BOOST_CHECK_EQUAL(expectedChannels.size(), 0);
 }
@@ -126,7 +122,7 @@ BOOST_FIXTURE_TEST_CASE(ChannelMapUdp, FactoryErrorCheck)
   auto multicastFace1a = factory.createMulticastFace(interfaceIp, "224.0.0.1", "20072");
   BOOST_CHECK_EQUAL(multicastFace1, multicastFace1a);
   BOOST_CHECK_EQUAL(multicastFace1->isLocal(), false);
-  BOOST_CHECK_EQUAL(multicastFace1->isOnDemand(), false);
+  BOOST_CHECK_EQUAL(multicastFace1->getPersistency(), ndn::nfd::FACE_PERSISTENCY_PERMANENT);
   BOOST_CHECK_EQUAL(multicastFace1->isMultiAccess(), true);
 
   //same endpoint of a multicast face
@@ -200,11 +196,6 @@ class FaceCreateFixture : protected BaseFixture
 {
 public:
   void
-  ignore()
-  {
-  }
-
-  void
   checkError(const std::string& errorActual, const std::string& errorExpected)
   {
     BOOST_CHECK_EQUAL(errorActual, errorExpected);
@@ -222,15 +213,40 @@ BOOST_FIXTURE_TEST_CASE(FaceCreate, FaceCreateFixture)
   UdpFactory factory = UdpFactory();
 
   factory.createFace(FaceUri("udp4://127.0.0.1:6363"),
-                     bind(&FaceCreateFixture::ignore, this),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
+                     bind([]{}),
                      bind(&FaceCreateFixture::checkError, this, _1,
                           "No channels available to connect to 127.0.0.1:6363"));
 
   factory.createChannel("127.0.0.1", "20071");
 
   factory.createFace(FaceUri("udp4://127.0.0.1:20070"),
-                     bind(&FaceCreateFixture::ignore, this),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
+                     bind([]{}),
                      bind(&FaceCreateFixture::failIfError, this, _1));
+  //test the upgrade
+  factory.createFace(FaceUri("udp4://127.0.0.1:20070"),
+                     ndn::nfd::FACE_PERSISTENCY_PERMANENT,
+                     bind([]{}),
+                     bind(&FaceCreateFixture::failIfError, this, _1));
+
+  factory.createFace(FaceUri("udp4://127.0.0.1:20072"),
+                     ndn::nfd::FACE_PERSISTENCY_PERMANENT,
+                     bind([]{}),
+                     bind(&FaceCreateFixture::failIfError, this, _1));
+}
+
+BOOST_AUTO_TEST_CASE(UnsupportedFaceCreate)
+{
+  UdpFactory factory;
+
+  factory.createChannel("127.0.0.1", "20070");
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("udp4://127.0.0.1:20070"),
+                                       ndn::nfd::FACE_PERSISTENCY_ON_DEMAND,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
 }
 
 class EndToEndIpv4
@@ -351,6 +367,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(EndToEnd, A, EndToEndAddresses)
   shared_ptr<Face> face1;
   unique_ptr<FaceHistory> history1;
   factory.createFace(A::getFaceUri2(),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                      [&] (shared_ptr<Face> newFace) {
                        face1 = newFace;
                        history1.reset(new FaceHistory(*face1, limitedIo));
@@ -462,6 +479,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(MultipleAccepts, A, EndToEndAddresses)
   boost::asio::ip::address ipAddress2 = boost::asio::ip::address::from_string(A::getLocalIp());
   udp::Endpoint endpoint2(ipAddress2, boost::lexical_cast<uint16_t>(A::getPort1()));
   channel2->connect(endpoint2,
+                    ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                     [&] (shared_ptr<Face> newFace) {
                       face2 = newFace;
                       limitedIo.afterOp();
@@ -479,6 +497,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(MultipleAccepts, A, EndToEndAddresses)
   boost::asio::ip::address ipAddress3 = boost::asio::ip::address::from_string(A::getLocalIp());
   udp::Endpoint endpoint3(ipAddress3, boost::lexical_cast<uint16_t>(A::getPort1()));
   channel3->connect(endpoint3,
+                    ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                     [&] (shared_ptr<Face> newFace) {
                       face3 = newFace;
                       limitedIo.afterOp();
@@ -516,6 +535,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(ManualClose, A, EndToEndAddresses)
   shared_ptr<Face> face1;
   unique_ptr<FaceHistory> history1;
   factory.createFace(A::getFaceUri2(),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                      [&] (shared_ptr<Face> newFace) {
                        face1 = newFace;
                        history1.reset(new FaceHistory(*face1, limitedIo));
@@ -560,6 +580,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(IdleClose, A, EndToEndAddresses)
   boost::asio::ip::address ipAddress = boost::asio::ip::address::from_string(A::getLocalIp());
   udp::Endpoint endpoint(ipAddress, boost::lexical_cast<uint16_t>(A::getPort1()));
   channel2->connect(endpoint,
+                    ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                     [&] (shared_ptr<Face> newFace) {
                       face2 = newFace;
                       history2.reset(new FaceHistory(*face2, limitedIo));
@@ -569,7 +590,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(IdleClose, A, EndToEndAddresses)
 
   limitedIo.run(1, time::milliseconds(100)); // 1 create (on channel2)
   BOOST_REQUIRE(face2 != nullptr);
-  BOOST_CHECK_EQUAL(face2->isOnDemand(), false);
+  BOOST_CHECK_EQUAL(face2->getPersistency(), ndn::nfd::FACE_PERSISTENCY_PERSISTENT);
   BOOST_CHECK_EQUAL(face2->isMultiAccess(), false);
 
   // face2 sends to channel1, creates face1
@@ -579,7 +600,7 @@ BOOST_AUTO_TEST_CASE_TEMPLATE(IdleClose, A, EndToEndAddresses)
   limitedIo.run(2, time::seconds(1)); // 1 accept (on channel1), 1 receive (on face1)
   BOOST_CHECK_EQUAL(channel1->size(), 1);
   BOOST_REQUIRE(face1 != nullptr);
-  BOOST_CHECK_EQUAL(face1->isOnDemand(), true);
+  BOOST_CHECK_EQUAL(face1->getPersistency(), ndn::nfd::FACE_PERSISTENCY_ON_DEMAND);
   BOOST_CHECK_EQUAL(face1->isMultiAccess(), false);
 
   limitedIo.defer(time::seconds(1));
@@ -676,7 +697,8 @@ BOOST_FIXTURE_TEST_CASE(Bug2292, FakeNetworkInterfaceFixture)
                }));
 }
 
-BOOST_AUTO_TEST_SUITE_END()
+BOOST_AUTO_TEST_SUITE_END() // TestUdp
+BOOST_AUTO_TEST_SUITE_END() // Face
 
 } // namespace tests
 } // namespace nfd

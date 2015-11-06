@@ -29,7 +29,7 @@
 #include "rib.hpp"
 #include "core/config-file.hpp"
 #include "rib-status-publisher.hpp"
-#include "remote-registrator.hpp"
+#include "auto-prefix-propagator.hpp"
 #include "fib-updater.hpp"
 
 #include <ndn-cxx/security/validator-config.hpp>
@@ -61,8 +61,7 @@ public:
     }
   };
 
-  explicit
-  RibManager(ndn::Face& face);
+  RibManager(ndn::Face& face, ndn::KeyChain& keyChain);
 
   ~RibManager();
 
@@ -202,13 +201,13 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE:
 
 private:
   ndn::Face& m_face;
+  ndn::KeyChain& m_keyChain;
   ndn::nfd::Controller m_nfdController;
-  ndn::KeyChain m_keyChain;
   ndn::ValidatorConfig m_localhostValidator;
   ndn::ValidatorConfig m_localhopValidator;
   ndn::nfd::FaceMonitor m_faceMonitor;
   bool m_isLocalhopEnabled;
-  RemoteRegistrator m_remoteRegistrator;
+  AutoPrefixPropagator m_prefixPropagator;
 
   RibStatusPublisher m_ribStatusPublisher;
 

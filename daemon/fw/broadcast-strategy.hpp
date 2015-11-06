@@ -1,12 +1,12 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /**
- * Copyright (c) 2014,  Regents of the University of California,
- *                      Arizona Board of Regents,
- *                      Colorado State University,
- *                      University Pierre & Marie Curie, Sorbonne University,
- *                      Washington University in St. Louis,
- *                      Beijing Institute of Technology,
- *                      The University of Memphis
+ * Copyright (c) 2014-2015,  Regents of the University of California,
+ *                           Arizona Board of Regents,
+ *                           Colorado State University,
+ *                           University Pierre & Marie Curie, Sorbonne University,
+ *                           Washington University in St. Louis,
+ *                           Beijing Institute of Technology,
+ *                           The University of Memphis.
  *
  * This file is part of NFD (Named Data Networking Forwarding Daemon).
  * See AUTHORS.md for complete list of NFD authors and contributors.
@@ -26,23 +26,18 @@
 #ifndef NFD_DAEMON_FW_BROADCAST_STRATEGY_HPP
 #define NFD_DAEMON_FW_BROADCAST_STRATEGY_HPP
 
-#include "strategy.hpp"
-#include "my_logger.hpp"
+#include "multicast-strategy.hpp"
 
 namespace nfd {
 namespace fw {
 
-/** \class BroadcastStrategy
- *  \brief a forwarding strategy that forwards Interest
- *         to all nexthops
+/** \brief identical to MulticastStrategy, for backwards compatibility
+ *  \deprecated use MulticastStrategy instead
  */
-class BroadcastStrategy : public Strategy
+class BroadcastStrategy : public MulticastStrategy
 {
 public:
   BroadcastStrategy(Forwarder& forwarder, const Name& name = STRATEGY_NAME);
-
-  virtual
-  ~BroadcastStrategy();
 
   virtual void
   afterReceiveInterest(const Face& inFace,
@@ -50,13 +45,11 @@ public:
                        shared_ptr<fib::Entry> fibEntry,
                        shared_ptr<pit::Entry> pitEntry) DECL_OVERRIDE;
 
-    virtual void
-    beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
-                                   const Face& inFace, const Data& data) DECL_OVERRIDE;
-
 public:
   static const Name STRATEGY_NAME;
-  my_logger m_my_logger;
+
+private:
+  bool m_isFirstUse;
 };
 
 } // namespace fw

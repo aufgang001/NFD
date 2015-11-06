@@ -24,7 +24,9 @@
  */
 
 #include "unix-stream-channel.hpp"
-#include "unix-stream-face.hpp"
+#include "generic-link-service.hpp"
+#include "lp-face-wrapper.hpp"
+#include "unix-stream-transport.hpp"
 #include "core/global-io.hpp"
 
 #include <boost/filesystem.hpp>
@@ -77,8 +79,8 @@ UnixStreamChannel::listen(const FaceCreatedCallback& onFaceCreated,
                   + error.message());
     if (!error) {
       // someone answered, leave the socket alone
-      throw Error("Socket file at " + m_endpoint.path()
-                  + " belongs to another NFD process");
+      BOOST_THROW_EXCEPTION(Error("Socket file at " + m_endpoint.path()
+                                  + " belongs to another NFD process"));
     }
     else if (error == boost::asio::error::connection_refused ||
              error == boost::asio::error::timed_out) {
@@ -89,7 +91,7 @@ UnixStreamChannel::listen(const FaceCreatedCallback& onFaceCreated,
     }
   }
   else if (type != fs::file_not_found) {
-    throw Error(m_endpoint.path() + " already exists and is not a socket file");
+    BOOST_THROW_EXCEPTION(Error(m_endpoint.path() + " already exists and is not a socket file"));
   }
 
   m_acceptor.open();
@@ -97,7 +99,8 @@ UnixStreamChannel::listen(const FaceCreatedCallback& onFaceCreated,
   m_acceptor.listen(backlog);
 
   if (::chmod(m_endpoint.path().c_str(), 0666) < 0) {
-    throw Error("chmod(" + m_endpoint.path() + ") failed: " + std::strerror(errno));
+    BOOST_THROW_EXCEPTION(Error("chmod(" + m_endpoint.path() + ") failed: " +
+                                std::strerror(errno)));
   }
 
   // start accepting connections
@@ -130,9 +133,10 @@ UnixStreamChannel::handleAccept(const boost::system::error_code& error,
 
   NFD_LOG_DEBUG("[" << m_endpoint << "] Incoming connection");
 
-  auto remoteUri = FaceUri::fromFd(m_socket.native_handle());
-  auto localUri = FaceUri(m_socket.local_endpoint());
-  auto face = make_shared<UnixStreamFace>(remoteUri, localUri, std::move(m_socket));
+  auto linkService = make_unique<face::GenericLinkService>();
+  auto transport = make_unique<face::UnixStreamTransport>(std::move(m_socket));
+  auto lpFace = make_unique<face::LpFace>(std::move(linkService), std::move(transport));
+  auto face = make_shared<face::LpFaceWrapper>(std::move(lpFace));
   onFaceCreated(face);
 
   // prepare accepting the next connection

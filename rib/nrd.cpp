@@ -66,7 +66,7 @@ Nrd::initialize()
 
   initializeLogging();
 
-  m_ribManager.reset(new RibManager(*m_face));
+  m_ribManager.reset(new RibManager(*m_face, m_keyChain));
 
   ConfigFile config([] (const std::string& filename, const std::string& sectionName,
                         const ConfigSection& section, bool isDryRun) {
@@ -143,7 +143,7 @@ Nrd::getLocalNfdTransport()
     return make_shared<ndn::TcpTransport>("localhost", port);
   }
   else {
-    throw Error("No transport is available to communicate with NFD");
+    BOOST_THROW_EXCEPTION(Error("No transport is available to communicate with NFD"));
   }
 }
 

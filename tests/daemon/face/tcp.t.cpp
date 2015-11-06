@@ -24,7 +24,6 @@
  */
 
 #include "face/tcp-channel.hpp"
-#include "face/tcp-face.hpp"
 #include "face/tcp-factory.hpp"
 
 #include "core/network-interface.hpp"
@@ -33,12 +32,13 @@
 #include "dummy-stream-sender.hpp"
 #include "packet-datasets.hpp"
 
-#include <ndn-cxx/security/key-chain.hpp>
-
 namespace nfd {
 namespace tests {
 
-BOOST_FIXTURE_TEST_SUITE(FaceTcp, BaseFixture)
+BOOST_AUTO_TEST_SUITE(Face)
+BOOST_FIXTURE_TEST_SUITE(TestTcp, BaseFixture)
+
+using nfd::Face;
 
 BOOST_AUTO_TEST_CASE(ChannelMap)
 {
@@ -79,11 +79,6 @@ class FaceCreateFixture : protected BaseFixture
 {
 public:
   void
-  ignore()
-  {
-  }
-
-  void
   checkError(const std::string& errorActual, const std::string& errorExpected)
   {
     BOOST_CHECK_EQUAL(errorActual, errorExpected);
@@ -98,18 +93,40 @@ public:
 
 BOOST_FIXTURE_TEST_CASE(FaceCreate, FaceCreateFixture)
 {
-  TcpFactory factory = TcpFactory();
+  TcpFactory factory;
 
   factory.createFace(FaceUri("tcp4://127.0.0.1:6363"),
-                     bind(&FaceCreateFixture::ignore, this),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
+                     bind([]{}),
                      bind(&FaceCreateFixture::checkError, this, _1,
                           "No channels available to connect to 127.0.0.1:6363"));
 
   factory.createChannel("127.0.0.1", "20071");
 
   factory.createFace(FaceUri("tcp4://127.0.0.1:20070"),
-                     bind(&FaceCreateFixture::ignore, this),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
+                     bind([]{}),
                      bind(&FaceCreateFixture::failIfError, this, _1));
+}
+
+BOOST_AUTO_TEST_CASE(UnsupportedFaceCreate)
+{
+  TcpFactory factory;
+
+  factory.createChannel("127.0.0.1", "20070");
+  factory.createChannel("127.0.0.1", "20071");
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("tcp4://127.0.0.1:20070"),
+                                       ndn::nfd::FACE_PERSISTENCY_PERMANENT,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
+
+  BOOST_CHECK_THROW(factory.createFace(FaceUri("tcp4://127.0.0.1:20071"),
+                                       ndn::nfd::FACE_PERSISTENCY_ON_DEMAND,
+                                       bind([]{}),
+                                       bind([]{})),
+                    ProtocolFactory::Error);
 }
 
 class EndToEndFixture : protected BaseFixture
@@ -266,6 +283,7 @@ BOOST_FIXTURE_TEST_CASE(EndToEnd4, EndToEndFixture)
   factory2.createChannel("127.0.0.2", "20071");
 
   factory2.createFace(FaceUri("tcp4://127.0.0.1:20070"),
+                      ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                       bind(&EndToEndFixture::channel2_onFaceCreated, this, _1),
                       bind(&EndToEndFixture::channel2_onConnectFailed, this, _1));
 
@@ -275,8 +293,8 @@ BOOST_FIXTURE_TEST_CASE(EndToEnd4, EndToEndFixture)
   BOOST_REQUIRE(static_cast<bool>(face1));
   BOOST_REQUIRE(static_cast<bool>(face2));
 
-  BOOST_CHECK_EQUAL(face1->isOnDemand(), true);
-  BOOST_CHECK_EQUAL(face2->isOnDemand(), false);
+  BOOST_CHECK_EQUAL(face1->getPersistency(), ndn::nfd::FACE_PERSISTENCY_ON_DEMAND);
+  BOOST_CHECK_EQUAL(face2->getPersistency(), ndn::nfd::FACE_PERSISTENCY_PERSISTENT);
   BOOST_CHECK_EQUAL(face1->isMultiAccess(), false);
   BOOST_CHECK_EQUAL(face2->isMultiAccess(), false);
 
@@ -286,11 +304,6 @@ BOOST_FIXTURE_TEST_CASE(EndToEnd4, EndToEndFixture)
 
   BOOST_CHECK_EQUAL(face1->isLocal(), true);
   BOOST_CHECK_EQUAL(face2->isLocal(), true);
-
-  BOOST_CHECK_EQUAL(static_cast<bool>(dynamic_pointer_cast<LocalFace>(face1)), true);
-  BOOST_CHECK_EQUAL(static_cast<bool>(dynamic_pointer_cast<LocalFace>(face2)), true);
-
-  // integrated tests needs to check that TcpFace for non-loopback fails these tests...
 
   shared_ptr<Interest> interest1 = makeInterest("ndn:/TpnzGvW9R");
   shared_ptr<Data>     data1     = makeData("ndn:/KfczhUqVix");
@@ -353,6 +366,7 @@ BOOST_FIXTURE_TEST_CASE(EndToEnd6, EndToEndFixture)
   factory2.createChannel("::2", "20070");
 
   factory2.createFace(FaceUri("tcp6://[::1]:20070"),
+                      ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                       bind(&EndToEndFixture::channel2_onFaceCreated, this, _1),
                       bind(&EndToEndFixture::channel2_onConnectFailed, this, _1));
 
@@ -368,11 +382,6 @@ BOOST_FIXTURE_TEST_CASE(EndToEnd6, EndToEndFixture)
 
   BOOST_CHECK_EQUAL(face1->isLocal(), true);
   BOOST_CHECK_EQUAL(face2->isLocal(), true);
-
-  BOOST_CHECK_EQUAL(static_cast<bool>(dynamic_pointer_cast<LocalFace>(face1)), true);
-  BOOST_CHECK_EQUAL(static_cast<bool>(dynamic_pointer_cast<LocalFace>(face2)), true);
-
-  // integrated tests needs to check that TcpFace for non-loopback fails these tests...
 
   shared_ptr<Interest> interest1 = makeInterest("ndn:/TpnzGvW9R");
   shared_ptr<Data>     data1     = makeData("ndn:/KfczhUqVix");
@@ -445,7 +454,6 @@ BOOST_FIXTURE_TEST_CASE(MultipleAccepts, EndToEndFixture)
   BOOST_CHECK_EQUAL(faces.size(), 6);
 }
 
-
 BOOST_FIXTURE_TEST_CASE(FaceClosing, EndToEndFixture)
 {
   TcpFactory factory;
@@ -485,7 +493,6 @@ BOOST_FIXTURE_TEST_CASE(FaceClosing, EndToEndFixture)
   BOOST_CHECK_EQUAL(channel2->size(), 0);
 }
 
-
 class SimpleEndToEndFixture : protected BaseFixture
 {
 public:
@@ -495,14 +502,6 @@ public:
     face->onReceiveInterest.connect(bind(&SimpleEndToEndFixture::onReceiveInterest, this, _1));
     face->onReceiveData.connect(bind(&SimpleEndToEndFixture::onReceiveData, this, _1));
     face->onFail.connect(bind(&SimpleEndToEndFixture::onFail, this, face));
-
-    if (static_cast<bool>(dynamic_pointer_cast<LocalFace>(face))) {
-      static_pointer_cast<LocalFace>(face)->setLocalControlHeaderFeature(
-        LOCAL_CONTROL_FEATURE_INCOMING_FACE_ID);
-
-      static_pointer_cast<LocalFace>(face)->setLocalControlHeaderFeature(
-        LOCAL_CONTROL_FEATURE_NEXT_HOP_FACE_ID);
-    }
 
     limitedIo.afterOp();
   }
@@ -543,26 +542,6 @@ public:
   std::vector<Interest> receivedInterests;
   std::vector<Data> receivedDatas;
 };
-
-
-BOOST_FIXTURE_TEST_CASE_TEMPLATE(LocalFaceCorruptedInput, Dataset,
-                                 CorruptedPackets, SimpleEndToEndFixture)
-{
-  TcpFactory factory;
-  tcp::Endpoint endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 20070);
-
-  shared_ptr<TcpChannel> channel = factory.createChannel(endpoint);
-  channel->listen(bind(&SimpleEndToEndFixture::onFaceCreated,   this, _1),
-                  bind(&SimpleEndToEndFixture::onConnectFailed, this, _1));
-  BOOST_REQUIRE_EQUAL(channel->isListening(), true);
-
-  DummyStreamSender<boost::asio::ip::tcp, Dataset> sender;
-  sender.start(endpoint);
-
-  BOOST_CHECK_MESSAGE(limitedIo.run(LimitedIo::UNLIMITED_OPS,
-                                    time::seconds(1)) == LimitedIo::EXCEED_TIME,
-                      "Exception thrown for " + Dataset::getName());
-}
 
 BOOST_FIXTURE_TEST_CASE_TEMPLATE(FaceCorruptedInput, Dataset,
                                  CorruptedPackets, SimpleEndToEndFixture)
@@ -630,6 +609,7 @@ BOOST_FIXTURE_TEST_CASE(FaceCreateTimeout, FaceCreateTimeoutFixture)
   shared_ptr<TcpChannel> channel = factory.createChannel("0.0.0.0", "20070");
 
   factory.createFace(FaceUri("tcp4://192.0.2.1:20070"),
+                     ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                      bind(&FaceCreateTimeoutFixture::onFaceCreated, this, _1),
                      bind(&FaceCreateTimeoutFixture::onConnectFailed, this, _1));
 
@@ -659,6 +639,7 @@ BOOST_FIXTURE_TEST_CASE(Bug1856, EndToEndFixture)
   factory2.createChannel("127.0.0.2", "20071");
 
   factory2.createFace(FaceUri("tcp4://127.0.0.1:20070"),
+                      ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
                       bind(&EndToEndFixture::channel2_onFaceCreated, this, _1),
                       bind(&EndToEndFixture::channel2_onConnectFailed, this, _1));
 
@@ -766,7 +747,8 @@ BOOST_FIXTURE_TEST_CASE(Bug2292, FakeNetworkInterfaceFixture)
                }));
 }
 
-BOOST_AUTO_TEST_SUITE_END()
+BOOST_AUTO_TEST_SUITE_END() // TestTcp
+BOOST_AUTO_TEST_SUITE_END() // Face
 
 } // namespace tests
 } // namespace nfd

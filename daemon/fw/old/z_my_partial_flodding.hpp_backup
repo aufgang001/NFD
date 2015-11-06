@@ -1,0 +1,34 @@
+#ifndef NFD_DAEMON_FW_MY_PARTIAL_FLODDING_HPP
+#define NFD_DAEMON_FW_MY_PARTIAL_FLODDING_HPP
+
+#include "strategy.hpp"
+
+namespace nfd {
+namespace fw {
+
+class my_partial_flodding: public Strategy
+{
+public:
+  my_partial_flodding(Forwarder& forwarder, const Name& name = STRATEGY_NAME);
+
+  virtual
+  ~my_partial_flodding();
+
+  virtual void
+  afterReceiveInterest(const Face& inFace,
+                       const Interest& interest,
+                       shared_ptr<fib::Entry> fibEntry,
+                       shared_ptr<pit::Entry> pitEntry) DECL_OVERRIDE;
+
+    virtual void
+    beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
+                                   const Face& inFace, const Data& data) DECL_OVERRIDE;
+
+public:
+  static const Name STRATEGY_NAME;
+};
+
+} // namespace fw
+} // namespace nfd
+
+#endif // NFD_DAEMON_FW_MY_PARTIAL_FLODDING_HPP

@@ -27,6 +27,7 @@
 #define NFD_DAEMON_FW_BROADCAST_STRATEGY_HPP
 
 #include "strategy.hpp"
+#include "my_logger.hpp"
 
 namespace nfd {
 namespace fw {
@@ -49,8 +50,13 @@ public:
                        shared_ptr<fib::Entry> fibEntry,
                        shared_ptr<pit::Entry> pitEntry) DECL_OVERRIDE;
 
+    virtual void
+    beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
+                                   const Face& inFace, const Data& data) DECL_OVERRIDE;
+
 public:
   static const Name STRATEGY_NAME;
+  my_logger m_my_logger;
 };
 
 } // namespace fw

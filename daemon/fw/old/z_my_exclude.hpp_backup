@@ -1,0 +1,82 @@
+#ifndef NFD_DAEMON_FW_MY_EXCLUDE_HPP
+#define NFD_DAEMON_FW_MY_EXCLUDE_HPP
+
+#include "strategy.hpp"
+
+#include <ndn-cxx/face.hpp>
+#include "my_routing.hpp"
+
+namespace nfd
+{
+namespace fw
+{
+//Die My_exclude Strategy schließt im Gegensatz zu ronr faces aus anstatt sie explicit zu wählen.
+//Dies hat den Vorteil, dass das Multicast konzept erhalten bleibt.
+//
+//My_exclude broadcastet empfangene Interest, empfängt ein Endknoten (mit genau einem interface) 
+//einen solchen interst und ohne einen Producer für den Prefix zu haben, wird eine Prune Nachricht verschickt.
+//Router die Prune Nachrichten empfangen schließen das jeweilige interface bei zukünftigen interest mit dem selben Prefix aus.
+//Hat der Router nur noch ein nicht ausgeschlossenes Interface wird die Prune-Nachricht dorthin aggregiert.
+//
+//Das problem war das man beim senden eines interst nicht angeben kann zu welchem interface is geschickt werden soll, das kann nur der startegie layer selber, darum ist die faceid in der prune_msg codiert und es gibt einen extra broadcast prefix für prune nachrichten (/prune_msg)
+
+class my_exclude: public Strategy
+{
+public:
+
+    my_exclude(Forwarder& forwarder, const ndn::Name& name = STRATEGY_NAME);
+
+    virtual
+    ~my_exclude();
+
+    virtual void
+    afterReceiveInterest(const Face& inFace,
+                         const Interest& interest,
+                         shared_ptr<fib::Entry> fibEntry,
+                         shared_ptr<pit::Entry> pitEntry) DECL_OVERRIDE;
+
+    virtual void
+    beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
+                                   const Face& inFace, const Data& data) DECL_OVERRIDE;
+
+    virtual void
+    beforeExpirePendingInterest(shared_ptr<pit::Entry> pitEntry);
+
+public:
+    static const Name STRATEGY_NAME;
+private:
+    struct routing_table_helper{
+        struct rdata{
+            rdata() = default; 
+            rdata(std::initializer_list<int> face_ids); 
+            std::set<int> exclude_faces;
+        };
+
+        routing_table_helper(const my_exclude* my_exclude_ptr);
+
+        //need the name of the packet not the prefix
+        void exclude_face(const Name& name, int faceid);
+
+        std::set<int> get_include_list(std::set<int> exclude_list);
+
+        std::map<Name, rdata> m_route_db;
+        const my_exclude* m_my_exclude;
+    };
+
+    void init_job();
+    void send_prune_msg_job(Name name, int faceid) const;
+
+    bool is_prune_msg(const Name& name) const;
+    int get_faceid_from_prune_msg(const Name& name) const;
+    Name get_name_from_prune_msg(const Name& name) const;
+    bool is_face_in_face_list(int faceid) const;
+
+    bool m_init_done;
+    std::list<std::tuple<std::string, int>> m_face_list;
+    routing_table_helper m_rth; 
+};
+
+} // namespace fw
+} // namespace nfd
+
+#endif // NFD_DAEMON_FW_MY_EXCLUDE_HPP

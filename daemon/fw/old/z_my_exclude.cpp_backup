@@ -1,0 +1,314 @@
+#include "my_exclude.hpp"
+
+
+
+//#include <ndn-cxx/encoding/buffer-stream.hpp>
+//#include <ndn-cxx/management/nfd-face-status.hpp>
+#include <ndn-cxx/management/nfd-controller.hpp>
+//#include <ndn-cxx/management/nfd-fib-entry.hpp>
+//#include <ndn-cxx/management/nfd-rib-entry.hpp>
+
+//#include <ndn-cxx/util/segment-fetcher.hpp>
+//#include <ndn-cxx/encoding/nfd-constants.hpp>
+
+#include <chrono>
+#include <thread>
+
+
+#include "my_logger.hpp"
+
+namespace nfd
+{
+namespace fw
+{
+
+const Name my_exclude::STRATEGY_NAME("ndn:/localhost/nfd/strategy/my_exclude/%FD%01");
+NFD_REGISTER_STRATEGY(my_exclude);
+
+
+my_exclude::my_exclude(Forwarder& forwarder, const ndn::Name& name)
+    : Strategy(forwarder, name)
+    , m_init_done(false)
+    , m_rth(this)
+{
+    std::thread init_thread(std::bind(&my_exclude::init_job, this));
+    init_thread.detach();
+}
+
+
+my_exclude::~my_exclude()
+{
+}
+
+
+void my_exclude::init_job()
+{
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    m_face_list = my_faceid::get_face_list();
+
+    m_face_list.erase(std::remove_if(m_face_list.begin(), m_face_list.end(), [](const std::tuple<std::string, int>& t) {
+        if (std::get<0>(t).find("dev://") == std::string::npos) { //dev://r1-eth0, delete all non dev:// entries
+            return true;
+        } else {
+            return false;
+        }
+    }), m_face_list.end());
+
+
+    std::cout << "!!!! INIT DONE !!!!" << std::endl;
+    m_init_done = true;
+}
+
+
+bool my_exclude::is_face_in_face_list(int faceid) const
+{
+    auto result = std::find_if(m_face_list.begin(), m_face_list.end(), [faceid](const std::tuple<std::string, int >& t) {
+        if (std::get<1>(t) == faceid) {
+            return true;
+        } else {
+            return false;
+        }
+    });
+
+    return result != m_face_list.end();
+}
+
+
+void my_exclude::afterReceiveInterest(const Face& inFace,
+                                      const Interest& interest,
+                                      shared_ptr<fib::Entry> fibEntry,
+                                      shared_ptr<pit::Entry> pitEntry)
+{
+    std::cout << "--DEBUG: MY_EXCLUDE Strategy (afterReceiveInterest start): " << interest.getName() << std::endl;
+    if (!m_init_done) {
+        std::cout << "DEBUG: Initialisation not finished!" << std::endl;
+        return;
+    }
+
+    my_logger::get().log("exclude", "afterReceiveInterest", interest.getName().toUri());
+
+    std::cout << "DEBUG: InRecord faceid: " << pitEntry->getInRecords().front().getFace()->getId() << std::endl;
+    std::cout << "DEBUG: is_face_in_face_list: " << is_face_in_face_list(pitEntry->getInRecords().front().getFace()->getId()) << std::endl;
+
+    if (is_prune_msg(interest.getName())) {
+        std::cout << "DEBUG: found Prune Message: " << interest.getName() << std::endl;
+
+        //received from an other device
+        if (is_face_in_face_list(inFace.getId())) {
+            std::cout << "DEBUG: received Prune Message from an other pc" << std::endl;
+            m_rth.exclude_face(get_name_from_prune_msg(interest.getName()), inFace.getId());
+        } else { //received from local machine
+            //prune Nachrichten werden zu dem face geleitet, welches in der prune Nachricht codiert ist
+            int faceid_prune_msg = get_faceid_from_prune_msg(interest.getName());
+            const fib::NextHopList& nexthops = fibEntry->getNextHops();
+            fib::NextHopList::const_iterator it = std::find_if(nexthops.begin(), nexthops.end(), [faceid_prune_msg](fib::NextHop hop) {
+                if (hop.getFace()->getId() == faceid_prune_msg) {
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+
+            if (it == nexthops.end()) {
+                std::cout << "ERROR: Failed to send prune message, interface not in list ..." << std::endl;
+            } else {
+                if (pitEntry->canForwardTo(*it->getFace())) {
+                    std::cout << "DEBUG: send prune messages to faceid: " << it->getFace()->getId() << std::endl;
+                    this->sendInterest(pitEntry, it->getFace());
+                }
+            }
+        }
+    } else { //standart interest
+        std::cout << "DEBUG: found standard interest" << std::endl;
+        const fib::NextHopList& nexthops = fibEntry->getNextHops();
+        bool found_out_face = false;
+        for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
+            shared_ptr<Face> outFace = it->getFace();
+            if (pitEntry->canForwardTo(*outFace)) {
+                std::cout << "DEBUG: forward standard interst to face:" << outFace->getId() << std::endl;
+                this->sendInterest(pitEntry, outFace);
+                found_out_face = true;
+            }
+        }
+
+        if (!found_out_face) {
+            std::cout << "DEBUG: afterReceiveInterest no output face found" << std::endl;
+            std::cout << "DEBUG: afterReceiveInterest start send prune_msg job" << std::endl;
+            //send  prune message von hier aus wenn kein Interface gefunden wurde.
+            //Normalerwiese handelt es sich hierbei um blatt knoten
+            int faceid = pitEntry->getInRecords().front().getFace()->getId();
+            std::thread send_prune_msg_thread(&my_exclude::send_prune_msg_job, this, pitEntry->getName(), faceid);
+            send_prune_msg_thread.detach();
+        }
+    }
+
+    if (!pitEntry->hasUnexpiredOutRecords()) {
+        this->rejectPendingInterest(pitEntry);
+    }
+
+    std::cout << "--DEBUG: MY_EXCLUDE Strategy (afterReceiveInterest stop)" << std::endl;
+}
+
+
+void my_exclude::beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
+                                       const Face& inFace, const Data& data)
+{
+    my_logger::get().log("exclude", "beforeSatisfyInterest", data.getName().toUri());
+}
+
+
+bool my_exclude::is_prune_msg(const Name& name) const
+{
+    //if pre last prefix is "prune_msg" (last is the interface index send from, imported for self afterReceiveInterest()
+    return name.get(name.size() - 2) == name::Component("prune_msg");
+}
+
+
+void my_exclude::send_prune_msg_job(Name name, int faceid) const
+{
+    std::cout << "--DEBUG: MY_EXCLUDE Strategy (send_prune_msg_job start):" << name << " faceid: " << faceid << std::endl;
+
+    ndn::Face m_face;
+    auto on_data = [](const ndn::Interest&, ndn::Data&) {
+        std::cout << "Error: should not receive data (in send_interest_face_job)" << std::endl;
+    };
+
+    auto on_timeout = [](const ndn::Interest&) {
+        std::cout << "DEBUG: send_prune_msg_job no data received OK!" << std::endl;
+    };
+
+    Name prune_name("/prune_msg");
+    prune_name.append(name).append("prune_msg").append(std::to_string(faceid));
+    Interest interest(prune_name);
+    interest.setMustBeFresh(true);
+    interest.setInterestLifetime(ndn::time::seconds(1));
+    //interest.setNonce(m_startPingNumber);
+    m_face.expressInterest(interest, on_data, on_timeout);
+    std::cout << "DEBUG: send_prune_msg_job send interest:" << prune_name << std::endl;
+    m_face.processEvents();
+
+    std::cout << "--DEBUG: MY_EXCLUDE Strategy (send_prune_msg_job stop)" << std::endl;
+}
+
+
+int my_exclude::get_faceid_from_prune_msg(const Name& name) const
+{
+    std::cout << "DEBUG: get_faceid_from_prune_msg:" << name << std::endl;
+    std::string faceid_str = name.get(name.size() - 1).toUri();
+    int faceid = std::stoi(faceid_str);
+    std::cout << "faceid: " << faceid_str << std::endl;
+    return faceid;
+}
+
+Name my_exclude::get_name_from_prune_msg(const Name& name) const
+{
+    // from name /prune_msg/exclude/xxx/s1/prune_msg/s1
+    // to name /exclude/xxx/s1
+    return name.getPrefix(-2).getSubName(1);
+}
+
+void my_exclude::beforeExpirePendingInterest(shared_ptr<pit::Entry> pitEntry)
+{
+}
+
+
+my_exclude::routing_table_helper::routing_table_helper(const my_exclude* my_exclude_ptr)
+    : m_my_exclude(my_exclude_ptr)
+{
+}
+
+
+my_exclude::routing_table_helper::rdata::rdata(std::initializer_list<int> face_ids)
+    : exclude_faces(face_ids)
+{
+}
+
+std::set<int> my_exclude::routing_table_helper::get_include_list(std::set<int> exclude_list)
+{
+    std::set<int> result;
+
+    std::for_each(m_my_exclude->m_face_list.begin(), m_my_exclude->m_face_list.end(), [&exclude_list, &result](const std::tuple<std::string, int>& t) {
+        auto it = exclude_list.find(std::get<1>(t));
+        if (it == exclude_list.end()) {
+            result.insert(std::get<1>(t));
+        }
+    });
+
+    return result;
+}
+
+void my_exclude::routing_table_helper::exclude_face(const Name& name, int faceid)
+{
+    std::cout << "DEBUG: MY_EXCLUDE Stragegy (exclude_face start): " << name.toUri() << " faceid:" << faceid << std::endl;
+    Name prefix = name.getPrefix(-1);
+    auto it = m_route_db.find(prefix);
+    if (it == m_route_db.end()) { //Prefix nicht vorhanden
+        //Name hinzuguegen
+        std::cout << "DEBUG: add new prefix to db:" << prefix.toUri() << std::endl;
+        m_route_db.insert(std::make_pair(prefix, rdata({faceid})));
+
+        //Routen setzen
+        auto include_face_list = get_include_list({faceid});
+        my_routing r;
+        bool set_a_route = false;
+        std::for_each(include_face_list.begin(), include_face_list.end(), [&prefix, &r, &set_a_route](int faceid) {
+            std::cout << "DEBUG: set route:" << prefix.toUri() << " faceid:" << faceid << std::endl;
+            set_a_route = true;
+            r.set_route(ndn::nfd::RouteFlags::ROUTE_FLAG_CAPTURE, prefix.toUri(), faceid, false);
+        });
+
+        if (!set_a_route) {
+            std::cout << "DEBUG: set route:" << prefix.toUri() << " to null face" << 255 << std::endl;
+            //set route to null if all faces are excluded
+            //wenn z.B. bei einem Blattknoten das einzige face geprunted wird
+            r.set_route(ndn::nfd::RouteFlags::ROUTE_FLAG_CAPTURE, prefix.toUri(), 255, false);
+        }
+
+    } else { //Name bereits vorhanden
+        //Face hinzufuegen und wenn face noch nicht vorhanden
+        if (it->second.exclude_faces.insert(faceid).second) {
+            std::cout << "DEBUG: add new face to db. faceid:" << faceid << std::endl;
+            //Face aus der Route loeschen
+            my_routing r;
+            std::cout << "DEBUG: unset route:" << prefix.toUri() << " faceid:" << faceid << std::endl;
+            r.unset_route(prefix.toUri(), faceid, false);
+        } else {
+            std::cout << "ERROR: face allready in db. faceid:" << faceid << std::endl;
+            return;
+        }
+
+
+    }
+
+    it = m_route_db.find(prefix);
+
+    std::cout << "DEBUG: exclude_face size:" <<  it->second.exclude_faces.size() << std::endl;
+    std::cout << "DEBUG print exclude face list: ";
+    for (auto & e : it->second.exclude_faces) {
+        std::cout << e << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "DEBUG: face_list size:" <<  m_my_exclude->m_face_list.size() << std::endl;
+    std::cout << "DEBUG print face_list list: ";
+    for (auto & e : m_my_exclude->m_face_list) {
+        std::cout << std::get<1>(e) << " ";
+    }
+    std::cout << std::endl;
+
+    //wenn nur noch ein Interface übrig ist, wird die prune message aggregiert
+    if (it->second.exclude_faces.size() == m_my_exclude->m_face_list.size() - 1) {
+        uint32_t outface = *get_include_list(it->second.exclude_faces).begin();
+        std::cout << "DEBUG: aggregate prune msg:" << name.toUri() << " faceid:" << outface << std::endl;
+        m_my_exclude->send_prune_msg_job(name, outface);
+    } else {
+        std::cout << "DEBUG: doesnt aggregate prune msg" << std::endl;
+    }
+
+    std::cout << "DEBUG: MY_EXCLUDE Stragegy (exclude_face stop)" << std::endl;
+}
+
+
+} // namespace fw
+} // namespace nfd

@@ -176,7 +176,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << "mit faceid: " << outFace->getId() << std::endl;)
                     }
-                } else if (face_set.empty() && !is_upstream(*outFace, interest_name)) {
+                } else if (!route_available && !is_upstream(*outFace, interest_name)) {
                     this->sendInterest(pitEntry, outFace);
                     DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
                     m_my_logger.log("panini", "afterSendBroadcastInterest", interest_name);

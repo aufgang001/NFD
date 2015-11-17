@@ -30,8 +30,8 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
 
     m_my_panini_fib.set_with_save_probability(true);
     m_my_panini_fib.set_is_nac(false);
-    m_my_panini_fib.set_default_expire_time(200);
-    m_my_panini_fib.set_max_entry_count(30);
+    //m_my_panini_fib.set_default_expire_time(200);
+    //m_my_panini_fib.set_max_entry_count(30);
 
     m_my_nac_fib.set_is_nac(false);
     m_my_nac_fib.set_with_save_probability(false);
@@ -52,8 +52,11 @@ void my_panini::afterReceiveInterest(const Face& inFace,
     //m_my_logger.log("panini", "afterReceiveInterest", interest.getName().toUri());
 
     auto is_upstream = [this](const Face & f, const std::string & name) {
-        auto ref_faces = m_my_nac_fib.route_to_faces(name);
-        if (ref_faces.empty()) { //is empty ==> is alles egal nac gibt es nicht
+        bool route_available;
+        std::set<int> ref_faces;
+        std::tie(route_available, ref_faces) = m_my_nac_fib.route_to_faces(name);
+
+        if (!route_available) { //is empty ==> is alles egal nac gibt es nicht
             return false;
         } else if (*ref_faces.begin() == f.getId()) { //is gleich  ==> super
             return true;
@@ -86,7 +89,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         std::tie(ex_in_postfix, nac_name) = my_routing_tree::split_postfix(nac_name);
 
         //only on nac per nac name can be registered, and not for an internal face
-        if (m_my_nac_fib.route_to_faces(nac_name).empty()) {
+        if (!std::get<0>(m_my_nac_fib.route_to_faces(nac_name))) {
             if (!is_intern_face(inFace)) {
                 m_my_nac_fib.set_route(interest_name, inFace.getId());
                 DOUT(std::cout << "DEBUG: set nac fib: " << interest_name << " to outFace: " << inFace.getLocalUri().toString() << " mit faceid: " << inFace.getId() << std::endl;);
@@ -134,10 +137,18 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         }
     } else if (m_my_panini_fib.has_prefix(interest_name, "/panini")) { //normal interst for request data
         DOUT(std::cout << "DEBUG: found interest message:" << interest_name << " on face: " << inFace.getLocalUri().toString() << " mit faceid: " << inFace.getId() << std::endl;)
-        auto face_set = m_my_panini_fib.route_to_faces(interest_name);
+        bool route_available;
+        std::set<int> face_set;
+        std::tie(route_available, face_set) = m_my_panini_fib.route_to_faces(interest_name);
 
-        if (!face_set.empty()) { //fib entry
-            DOUT(std::cout << " DEBUG: face_set not empty" << std::endl;)
+        if (route_available) { //fib entry ????? die frage müsste lauten gibt es eine route
+            DOUT(
+                std::cout << " DEBUG: face_set not empty: ";
+                for(auto x : face_set){
+                    std::cout << x << " ";
+                }
+                std::cout << std::endl;
+            );
 
             for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();

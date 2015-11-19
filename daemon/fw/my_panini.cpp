@@ -11,7 +11,7 @@ namespace nfd
 namespace fw
 {
 
-#define MY_DEBUG_OUTPUT
+//#define MY_DEBUG_OUTPUT
 #ifdef MY_DEBUG_OUTPUT
 # define DOUT(x) x
 #else

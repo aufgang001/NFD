@@ -38,6 +38,9 @@ private:
     my_logger m_my_logger;
     my_panini_fib m_my_panini_fib;
     my_panini_fib m_my_nac_fib;
+
+    void set_extern_panini_fib_parameter();
+
 };
 
 

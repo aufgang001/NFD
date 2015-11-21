@@ -44,19 +44,27 @@ my_panini::~my_panini()
 
 void my_panini::set_extern_panini_fib_parameter(){
     if (const char* env_p = std::getenv("FIB_TABLE_SIZE")) {
-         auto fib_table_size = std::stoi(std::string(env_p));
-         DOUT(std::cout << " DEBUG: set fib table size: " << fib_table_size << std::endl;);
-         m_my_panini_fib.set_max_entry_count(fib_table_size);
+        try { 
+            auto fib_table_size = std::stoi(std::string(env_p));
+            DOUT(std::cout << " DEBUG: set fib table size: " << fib_table_size << std::endl;);
+            m_my_panini_fib.set_max_entry_count(fib_table_size);
+        } catch(...){
+            DOUT(std::cout << " DEBUG: failed to parse fib table size" << std::endl;);
+        }
     } else {
-         DOUT(std::cout << " DEBUG: fib table size not given" << std::endl;);
+        DOUT(std::cout << " DEBUG: fib table size not given" << std::endl;);
     }
 
     //if (const char* env_p = std::getenv("FIB_TABLE_EXPIRE_TIME")) {
-         //auto fib_table_expire_time = std::stoi(std::string(env_p));
-         //DOUT(std::cout << " DEBUG: set fib table expire time: " << fib_table_size << std::endl;);
-         //m_my_panini_fib.set_default_expire_time(fib_table_expire_time);
+        //try { 
+            //auto fib_table_expire_time = std::stoi(std::string(env_p));
+            //DOUT(std::cout << " DEBUG: set fib table expire time: " << fib_table_size << std::endl;);
+            //m_my_panini_fib.set_default_expire_time(fib_table_expire_time);
+        //} catch(...){
+            //DOUT(std::cout << " DEBUG: failed to parse fib table expire time" << std::endl;);
+        //}
     //} else {
-         //DOUT(std::cout << " DEBUG: fib table expire time not given" << std::endl;);
+        //DOUT(std::cout << " DEBUG: fib table expire time not given" << std::endl;);
     //}
 }
 

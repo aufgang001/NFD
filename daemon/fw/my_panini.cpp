@@ -29,7 +29,7 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
 {
     DOUT(std::cout << "DEBUG: start PANINI Strategy" << std::endl;)
 
-    m_my_panini_fib.set_with_save_probability(true);
+    m_my_panini_fib.set_with_save_probability(false);
     m_my_panini_fib.set_is_nac(false);
     set_extern_panini_fib_parameter();
 

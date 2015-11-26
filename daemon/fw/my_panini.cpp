@@ -42,13 +42,14 @@ my_panini::~my_panini()
     DOUT(std::cout << "DEBUG: stopped PANINI Strategy" << std::endl;)
 }
 
-void my_panini::set_extern_panini_fib_parameter(){
+void my_panini::set_extern_panini_fib_parameter()
+{
     if (const char* env_p = std::getenv("FIB_TABLE_SIZE")) {
-        try { 
+        try {
             auto fib_table_size = std::stoi(std::string(env_p));
             DOUT(std::cout << " DEBUG: set fib table size: " << fib_table_size << std::endl;);
             m_my_panini_fib.set_max_entry_count(fib_table_size);
-        } catch(...){
+        } catch (...) {
             DOUT(std::cout << " DEBUG: failed to parse fib table size" << std::endl;);
         }
     } else {
@@ -56,15 +57,15 @@ void my_panini::set_extern_panini_fib_parameter(){
     }
 
     //if (const char* env_p = std::getenv("FIB_TABLE_EXPIRE_TIME")) {
-        //try { 
-            //auto fib_table_expire_time = std::stoi(std::string(env_p));
-            //DOUT(std::cout << " DEBUG: set fib table expire time: " << fib_table_size << std::endl;);
-            //m_my_panini_fib.set_default_expire_time(fib_table_expire_time);
-        //} catch(...){
-            //DOUT(std::cout << " DEBUG: failed to parse fib table expire time" << std::endl;);
-        //}
+    //try {
+    //auto fib_table_expire_time = std::stoi(std::string(env_p));
+    //DOUT(std::cout << " DEBUG: set fib table expire time: " << fib_table_size << std::endl;);
+    //m_my_panini_fib.set_default_expire_time(fib_table_expire_time);
+    //} catch(...){
+    //DOUT(std::cout << " DEBUG: failed to parse fib table expire time" << std::endl;);
+    //}
     //} else {
-        //DOUT(std::cout << " DEBUG: fib table expire time not given" << std::endl;);
+    //DOUT(std::cout << " DEBUG: fib table expire time not given" << std::endl;);
     //}
 }
 
@@ -135,7 +136,6 @@ void my_panini::afterReceiveInterest(const Face& inFace,
 
             if (pitEntry->canForwardTo(*outFace) && outFace->getId() != inFace.getId()) { //send nac message not back to receiption face
                 DOUT(std::cout << " DEBUG: send nac message to: " << outFace->getLocalUri().toString() << " faceid: " << outFace->getId() << std::endl;)
-
                 this->sendInterest(pitEntry, outFace);
                 m_my_logger.log("panini", "afterSendNac", interest_name);
             }
@@ -170,25 +170,25 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         if (route_available) { //fib entry ????? die frage müsste lauten gibt es eine route
             DOUT(
                 std::cout << " DEBUG: face_set not empty: ";
-                for(auto x : face_set){
-                    std::cout << x << " ";
-                }
-                std::cout << std::endl;
-            );
+            for (auto x : face_set) {
+            std::cout << x << " ";
+        }
+        std::cout << std::endl;
+        );
 
             for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
-                if (is_intern_face(*outFace)) {
-                    if (pitEntry->canForwardTo(*outFace)) {
+                if (pitEntry->canForwardTo(*outFace)) {
+                    if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
+                    } else if (face_set.find(outFace->getId()) != face_set.end()) {
+                        this->sendInterest(pitEntry, outFace, true);
+                        DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
+                        m_my_logger.log("panini", "afterSendUnicastInterest", interest_name);
+                        break;
                     }
-                } else if (face_set.find(outFace->getId()) != face_set.end()) {
-                    this->sendInterest(pitEntry, outFace, true);
-                    DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
-                    m_my_logger.log("panini", "afterSendUnicastInterest", interest_name);
-                    break;
                 }
 
             }
@@ -197,15 +197,16 @@ void my_panini::afterReceiveInterest(const Face& inFace,
             for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
-                if (is_intern_face(*outFace)) {
-                    if (pitEntry->canForwardTo(*outFace)) {
+                if (pitEntry->canForwardTo(*outFace)) {
+                    if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << "mit faceid: " << outFace->getId() << std::endl;)
+                    } else if (!route_available && !is_upstream(*outFace, interest_name)) {
+                        this->sendInterest(pitEntry, outFace);
+                        DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
+                        m_my_logger.log("panini", "afterSendBroadcastInterest", interest_name);
                     }
-                } else if (!route_available && !is_upstream(*outFace, interest_name)) {
-                    this->sendInterest(pitEntry, outFace);
-                    DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
-                    m_my_logger.log("panini", "afterSendBroadcastInterest", interest_name);
+
                 }
             }
         } else { //forward to upstream

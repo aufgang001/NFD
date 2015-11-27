@@ -154,14 +154,14 @@ void my_panini::afterReceiveInterest(const Face& inFace,
 
             if (is_upstream(*outFace, remainder)) {
                 if (pitEntry->canForwardTo(*outFace)) {
-                    DOUT(std::cout << " DEBUG: found upstream to forward nam_msg: " << outFace->getLocalUri().toString() << " faceid: " << outFace->getId() << std::endl;)
+                    DOUT(std::cout << " DEBUG: found upstream to forward nam_msg: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
                     this->sendInterest(pitEntry, outFace);
                     m_my_logger.log("panini", "afterSendNam", interest_name);
                     break;
                 }
             }
         }
-    } else if (m_my_panini_fib.has_prefix(interest_name, "/panini")) { //normal interst for request data
+    } else if (m_my_panini_fib.has_prefix(interest_name, "/panini")) { //normal interest for request data
         DOUT(std::cout << "DEBUG: found interest message:" << interest_name << " on face: " << inFace.getLocalUri().toString() << " mit faceid: " << inFace.getId() << std::endl;)
         bool route_available;
         std::set<int> face_set;
@@ -176,13 +176,14 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         std::cout << std::endl;
         );
 
-            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
+            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 if (pitEntry->canForwardTo(*outFace)) {
                     if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
+                        break;
                     } else if (face_set.find(outFace->getId()) != face_set.end()) {
                         this->sendInterest(pitEntry, outFace, true);
                         DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
@@ -194,13 +195,14 @@ void my_panini::afterReceiveInterest(const Face& inFace,
             }
         } else if (is_upstream(inFace, interest_name)) { //broadcast
             DOUT(std::cout << " DEBUG: inFace is the upstream: " << inFace.getId() << " mit faceid: " << inFace.getLocalUri().toString() << std::endl;)
-            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
+            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 if (pitEntry->canForwardTo(*outFace)) {
                     if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
-                        DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << "mit faceid: " << outFace->getId() << std::endl;)
+                        DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
+                        break;
                     } else if (!route_available && !is_upstream(*outFace, interest_name)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
@@ -212,7 +214,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         } else { //forward to upstream
             DOUT(std::cout << " DEBUG: inFace is a downstream: " << inFace.getId() << " mit faceid: " << inFace.getLocalUri().toString() << std::endl;)
 
-            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
+            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 if (pitEntry->canForwardTo(*outFace)) {

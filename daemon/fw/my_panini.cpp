@@ -176,7 +176,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         std::cout << std::endl;
         );
 
-            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
+            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 //if (pitEntry->canForwardTo(*outFace)) {
@@ -195,7 +195,8 @@ void my_panini::afterReceiveInterest(const Face& inFace,
             }
         } else if (is_upstream(inFace, interest_name)) { //broadcast
             DOUT(std::cout << " DEBUG: inFace is the upstream: " << inFace.getId() << " mit faceid: " << inFace.getLocalUri().toString() << std::endl;)
-            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
+            //for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
+            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 //if (pitEntry->canForwardTo(*outFace)) {
@@ -214,7 +215,8 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         } else { //forward to upstream
             DOUT(std::cout << " DEBUG: inFace is a downstream: " << inFace.getId() << " mit faceid: " << inFace.getLocalUri().toString() << std::endl;)
 
-            for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
+            //for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
+            for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
                 if (pitEntry->canForwardTo(*outFace)) {

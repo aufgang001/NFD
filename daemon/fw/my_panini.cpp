@@ -179,7 +179,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
             for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
-                if (pitEntry->canForwardTo(*outFace)) {
+                //if (pitEntry->canForwardTo(*outFace)) {
                     if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
@@ -190,7 +190,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
                         m_my_logger.log("panini", "afterSendUnicastInterest", interest_name);
                         break;
                     }
-                }
+                //}
 
             }
         } else if (is_upstream(inFace, interest_name)) { //broadcast
@@ -198,7 +198,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
             for (fib::NextHopList::const_reverse_iterator it = nexthops.rbegin(); it != nexthops.rend(); ++it) {
                 shared_ptr<Face> outFace = it->getFace();
 
-                if (pitEntry->canForwardTo(*outFace)) {
+                //if (pitEntry->canForwardTo(*outFace)) {
                     if (is_intern_face(*outFace)) {
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (a) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
@@ -207,7 +207,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
                         this->sendInterest(pitEntry, outFace);
                         DOUT(std::cout << " DEBUG: (b) send Interest to outFace: " << outFace->getLocalUri().toString() << " mit faceid: " << outFace->getId() << std::endl;)
                         m_my_logger.log("panini", "afterSendBroadcastInterest", interest_name);
-                    }
+                    //}
 
                 }
             }

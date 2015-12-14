@@ -40,7 +40,6 @@ private:
     my_panini_fib m_my_nac_fib;
 
     void set_extern_panini_fib_parameter();
-
 };
 
 

@@ -107,6 +107,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
 
     if (m_my_panini_fib.has_prefix(interest_name, "/nac")) {//nac discover message ==> to set upstream and to set the exclude list for the fib
         DOUT(std::cout << "DEBUG: found nac message:" << interest_name << std::endl;)
+        m_my_logger.log("panini", "afterRecvNac", interest_name);
 
         //## /nac/panini/nac0/+in
         std::string interest_type_prefix; //## /nac
@@ -143,6 +144,8 @@ void my_panini::afterReceiveInterest(const Face& inFace,
 
     } else if (m_my_panini_fib.has_prefix(interest_name, "/nam_msg")) { //process nam_msg
         DOUT(std::cout << "DEBUG: found nam message:" << interest_name << std::endl;)
+        m_my_logger.log("panini", "afterRecvNam", interest_name);
+
         m_my_panini_fib.set_route(interest_name, inFace.getId());
         DOUT(std::cout << "panini_fib: " << m_my_panini_fib << std::endl;);
 
@@ -163,6 +166,8 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         }
     } else if (m_my_panini_fib.has_prefix(interest_name, "/panini")) { //normal interest for request data
         DOUT(std::cout << "DEBUG: found interest message:" << interest_name << " on face: " << inFace.getLocalUri().toString() << " mit faceid: " << inFace.getId() << std::endl;)
+        m_my_logger.log("panini", "afterRecvInterest", interest_name);
+
         bool route_available;
         std::set<int> face_set;
         std::tie(route_available, face_set) = m_my_panini_fib.route_to_faces(interest_name);

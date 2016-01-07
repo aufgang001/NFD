@@ -109,7 +109,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         DOUT(std::cout << "DEBUG: found nac message:" << interest_name << std::endl;)
         m_my_logger.log("panini", "afterRecvNac", interest_name);
 
-        //## /nac/panini/nac0/+in
+        //## /nac/panini/nac0/0/+in
         std::string interest_type_prefix; //## /nac
         std::string nac_name; //## /panini/nac0
         std::string ex_in_postfix; //## /+1

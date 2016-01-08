@@ -109,12 +109,13 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         DOUT(std::cout << "DEBUG: found nac message:" << interest_name << std::endl;)
         m_my_logger.log("panini", "afterRecvNac", interest_name);
 
-        //## /nac/panini/nac0/0/+in
+        //## /nac/panini/nac0/+in/0
         std::string interest_type_prefix; //## /nac
         std::string nac_name; //## /panini/nac0
-        std::string ex_in_postfix; //## /+1
-        std::tie(interest_type_prefix, nac_name) = my_routing_tree::split_prefix(interest_name);
-        std::tie(ex_in_postfix, nac_name) = my_routing_tree::split_postfix(nac_name);
+        std::string ex_in_postfix; //## /+in
+        std::tie(interest_type_prefix, nac_name) = my_routing_tree::split_prefix(interest_name); //## /nac, /panini/nac0/+in/0
+        std::tie(std::ignore, nac_name) = my_routing_tree::split_postfix(nac_name); //## /0, /panini/nac0/+in/0
+        std::tie(ex_in_postfix, nac_name) = my_routing_tree::split_postfix(nac_name); //## /+in, /panini/nac0/
 
         //only on nac per nac name can be registered, and not for an internal face
         if (!std::get<0>(m_my_nac_fib.route_to_faces(nac_name))) {
@@ -147,7 +148,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         m_my_logger.log("panini", "afterRecvNam", interest_name);
 
         m_my_panini_fib.set_route(interest_name, inFace.getId());
-        DOUT(std::cout << "panini_fib: " << m_my_panini_fib << std::endl;);
+        //DOUT(std::cout << "panini_fib: " << m_my_panini_fib << std::endl;);
 
         for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
             shared_ptr<Face> outFace = it->getFace();

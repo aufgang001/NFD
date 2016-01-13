@@ -31,6 +31,7 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
 
     m_my_panini_fib.set_with_save_probability(false);
     m_my_panini_fib.set_is_nac(false);
+    m_my_panini_fib.set_face_limit_per_entry(1); //lokale interfaces koennen ihre id aendern, wodurch sich auf dauer die Fibsize mit lokalen id füllt
     set_extern_panini_fib_parameter();
 
     m_my_nac_fib.set_is_nac(false);
@@ -145,7 +146,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
 
     } else if (m_my_panini_fib.has_prefix(interest_name, "/nam_msg")) { //process nam_msg
         DOUT(std::cout << "DEBUG: found nam message:" << interest_name << std::endl;)
-        m_my_logger.log("panini", "afterRecvNam", interest_name, m_my_panini_fib.get_entry_count());
+        m_my_logger.log("panini", "afterRecvNam", interest_name, m_my_panini_fib.get_entry_count(), inFace.getLocalUri().toString(), inFace.getId());
 
         m_my_panini_fib.set_route(interest_name, inFace.getId());
         //DOUT(std::cout << "panini_fib: " << m_my_panini_fib << std::endl;);
@@ -167,7 +168,7 @@ void my_panini::afterReceiveInterest(const Face& inFace,
         }
     } else if (m_my_panini_fib.has_prefix(interest_name, "/panini")) { //normal interest for request data
         DOUT(std::cout << "DEBUG: found interest message:" << interest_name << " on face: " << inFace.getLocalUri().toString() << " mit faceid: " << inFace.getId() << std::endl;)
-        m_my_logger.log("panini", "afterRecvInterest", interest_name, m_my_panini_fib.get_entry_count());
+        m_my_logger.log("panini", "afterRecvInterest", interest_name, m_my_panini_fib.get_entry_count(), inFace.getLocalUri().toString(), inFace.getId());
 
         bool route_available;
         std::set<int> face_set;

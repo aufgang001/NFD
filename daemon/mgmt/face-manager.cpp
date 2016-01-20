@@ -27,7 +27,6 @@
 
 #include "core/network-interface.hpp"
 #include "face/generic-link-service.hpp"
-#include "face/lp-face-wrapper.hpp"
 #include "face/tcp-factory.hpp"
 #include "face/udp-factory.hpp"
 #include "fw/face-table.hpp"
@@ -42,7 +41,7 @@
 
 #ifdef HAVE_LIBPCAP
 #include "face/ethernet-factory.hpp"
-#include "face/ethernet-face.hpp"
+#include "face/ethernet-transport.hpp"
 #endif // HAVE_LIBPCAP
 
 #ifdef HAVE_WEBSOCKET
@@ -77,9 +76,9 @@ FaceManager::FaceManager(FaceTable& faceTable,
 
   auto postNotification = registerNotificationStream("events");
   m_faceAddConn =
-    m_faceTable.onAdd.connect(bind(&FaceManager::afterFaceAdded, this, _1, postNotification));
+    m_faceTable.afterAdd.connect(bind(&FaceManager::afterFaceAdded, this, _1, postNotification));
   m_faceRemoveConn =
-    m_faceTable.onRemove.connect(bind(&FaceManager::afterFaceRemoved, this, _1, postNotification));
+    m_faceTable.beforeRemove.connect(bind(&FaceManager::afterFaceRemoved, this, _1, postNotification));
 }
 
 void
@@ -173,20 +172,14 @@ FaceManager::enableLocalControl(const Name& topPrefix, const Interest& interest,
                                 const ControlParameters& parameters,
                                 const ndn::mgmt::CommandContinuation& done)
 {
-  auto result = extractLocalControlParameters(interest, parameters, done);
-  if (!result.isValid) {
+  Face* face = findFaceForLocalControl(interest, parameters, done);
+  if (!face) {
     return;
-  }
-
-  if (result.face) {
-    result.face->setLocalControlHeaderFeature(result.feature, true);
-    return done(ControlResponse(200, "OK").setBody(parameters.wireEncode()));
   }
 
   // TODO#3226 redesign enable-local-control
   // For now, enable-local-control will enable all local fields in GenericLinkService.
-  BOOST_ASSERT(result.lpFace != nullptr);
-  auto service = dynamic_cast<face::GenericLinkService*>(result.lpFace->getLinkService());
+  auto service = dynamic_cast<face::GenericLinkService*>(face->getLinkService());
   if (service == nullptr) {
     return done(ControlResponse(503, "LinkService type not supported"));
   }
@@ -204,20 +197,14 @@ FaceManager::disableLocalControl(const Name& topPrefix, const Interest& interest
                                  const ControlParameters& parameters,
                                  const ndn::mgmt::CommandContinuation& done)
 {
-  auto result = extractLocalControlParameters(interest, parameters, done);
-  if (!result.isValid) {
+  Face* face = findFaceForLocalControl(interest, parameters, done);
+  if (!face) {
     return;
-  }
-
-  if (result.face) {
-    result.face->setLocalControlHeaderFeature(result.feature, false);
-    return done(ControlResponse(200, "OK").setBody(parameters.wireEncode()));
   }
 
   // TODO#3226 redesign disable-local-control
   // For now, disable-local-control will disable all local fields in GenericLinkService.
-  BOOST_ASSERT(result.lpFace != nullptr);
-  auto service = dynamic_cast<face::GenericLinkService*>(result.lpFace->getLinkService());
+  auto service = dynamic_cast<face::GenericLinkService*>(face->getLinkService());
   if (service == nullptr) {
     return done(ControlResponse(503, "LinkService type not supported"));
   }
@@ -230,46 +217,41 @@ FaceManager::disableLocalControl(const Name& topPrefix, const Interest& interest
               .setBody(parameters.wireEncode()));
 }
 
-FaceManager::ExtractLocalControlParametersResult
-FaceManager::extractLocalControlParameters(const Interest& request,
-                                           const ControlParameters& parameters,
-                                           const ndn::mgmt::CommandContinuation& done)
+Face*
+FaceManager::findFaceForLocalControl(const Interest& request,
+                                     const ControlParameters& parameters,
+                                     const ndn::mgmt::CommandContinuation& done)
 {
-  ExtractLocalControlParametersResult result;
-  result.isValid = false;
-  result.lpFace = nullptr;
+  shared_ptr<lp::IncomingFaceIdTag> incomingFaceIdTag = request.getTag<lp::IncomingFaceIdTag>();
+  // NDNLPv2 says "application MUST be prepared to receive a packet without IncomingFaceId field",
+  // but it's fine to assert IncomingFaceId is available, because InternalFace lives inside NFD
+  // and is initialized synchronously with IncomingFaceId field enabled.
+  BOOST_ASSERT(incomingFaceIdTag != nullptr);
 
-  auto face = m_faceTable.get(request.getIncomingFaceId());
+  auto face = m_faceTable.get(*incomingFaceIdTag);
   if (face == nullptr) {
-    NFD_LOG_DEBUG("FaceId " << request.getIncomingFaceId() << " not found");
+    NFD_LOG_DEBUG("FaceId " << *incomingFaceIdTag << " not found");
     done(ControlResponse(410, "Face not found"));
-    return result;
+    return nullptr;
   }
 
-  if (!face->isLocal()) {
+  if (face->getScope() == ndn::nfd::FACE_SCOPE_NON_LOCAL) {
     NFD_LOG_DEBUG("Cannot enable local control on non-local FaceId " << face->getId());
     done(ControlResponse(412, "Face is non-local"));
-    return result;
+    return nullptr;
   }
 
-  result.isValid = true;
-  result.face = dynamic_pointer_cast<LocalFace>(face);
-  if (result.face == nullptr) {
-    auto lpFaceW = dynamic_pointer_cast<face::LpFaceWrapper>(face);
-    BOOST_ASSERT(lpFaceW != nullptr);
-    result.lpFace = lpFaceW->getLpFace();
-  }
-  result.feature = parameters.getLocalControlFeature();
-
-  return result;
+  return face.get();
 }
 
 void
 FaceManager::listFaces(const Name& topPrefix, const Interest& interest,
                        ndn::mgmt::StatusDatasetContext& context)
 {
+  auto now = time::steady_clock::now();
   for (const auto& face : m_faceTable) {
-    context.append(face->getFaceStatus().wireEncode());
+    ndn::nfd::FaceStatus status = collectFaceStatus(*face, now);
+    context.append(status.wireEncode());
   }
   context.end();
 }
@@ -311,10 +293,13 @@ FaceManager::queryFaces(const Name& topPrefix, const Interest& interest,
     return context.reject(ControlResponse(400, "Malformed filter"));
   }
 
+  auto now = time::steady_clock::now();
   for (const auto& face : m_faceTable) {
-    if (doesMatchFilter(faceFilter, face)) {
-      context.append(face->getFaceStatus().wireEncode());
+    if (!doesMatchFilter(faceFilter, face)) {
+      continue;
     }
+    ndn::nfd::FaceStatus status = collectFaceStatus(*face, now);
+    context.append(status.wireEncode());
   }
 
   context.end();
@@ -345,7 +330,7 @@ FaceManager::doesMatchFilter(const ndn::nfd::FaceQueryFilter& filter, shared_ptr
   }
 
   if (filter.hasFaceScope() &&
-      (filter.getFaceScope() == ndn::nfd::FACE_SCOPE_LOCAL) != face->isLocal()) {
+      filter.getFaceScope() != face->getScope()) {
     return false;
   }
 
@@ -355,11 +340,49 @@ FaceManager::doesMatchFilter(const ndn::nfd::FaceQueryFilter& filter, shared_ptr
   }
 
   if (filter.hasLinkType() &&
-      (filter.getLinkType() == ndn::nfd::LINK_TYPE_MULTI_ACCESS) != face->isMultiAccess()) {
+      filter.getLinkType() != face->getLinkType()) {
     return false;
   }
 
   return true;
+}
+
+ndn::nfd::FaceStatus
+FaceManager::collectFaceStatus(const Face& face, const time::steady_clock::TimePoint& now)
+{
+  ndn::nfd::FaceStatus status;
+
+  collectFaceProperties(face, status);
+
+  time::steady_clock::TimePoint expirationTime = face.getExpirationTime();
+  if (expirationTime != time::steady_clock::TimePoint::max()) {
+    status.setExpirationPeriod(std::max(time::milliseconds(0),
+                                        time::duration_cast<time::milliseconds>(expirationTime - now)));
+  }
+
+  const face::FaceCounters& counters = face.getCounters();
+  status.setNInInterests(counters.nInInterests)
+        .setNOutInterests(counters.nOutInterests)
+        .setNInDatas(counters.nInData)
+        .setNOutDatas(counters.nOutData)
+        .setNInNacks(counters.nInNacks)
+        .setNOutNacks(counters.nOutNacks)
+        .setNInBytes(counters.nInBytes)
+        .setNOutBytes(counters.nOutBytes);
+
+  return status;
+}
+
+template<typename FaceTraits>
+void
+FaceManager::collectFaceProperties(const Face& face, FaceTraits& traits)
+{
+  traits.setFaceId(face.getId())
+        .setRemoteUri(face.getRemoteUri().toString())
+        .setLocalUri(face.getLocalUri().toString())
+        .setFaceScope(face.getScope())
+        .setFacePersistency(face.getPersistency())
+        .setLinkType(face.getLinkType());
 }
 
 void
@@ -368,7 +391,7 @@ FaceManager::afterFaceAdded(shared_ptr<Face> face,
 {
   ndn::nfd::FaceEventNotification notification;
   notification.setKind(ndn::nfd::FACE_EVENT_CREATED);
-  face->copyStatusTo(notification);
+  collectFaceProperties(*face, notification);
 
   post(notification.wireEncode());
 }
@@ -379,7 +402,7 @@ FaceManager::afterFaceRemoved(shared_ptr<Face> face,
 {
   ndn::nfd::FaceEventNotification notification;
   notification.setKind(ndn::nfd::FACE_EVENT_DESTROYED);
-  face->copyStatusTo(notification);
+  collectFaceProperties(*face, notification);
 
   post(notification.wireEncode());
 }
@@ -670,7 +693,7 @@ FaceManager::processSectionUdp(const ConfigSection& configSection, bool isDryRun
       m_factories.insert(std::make_pair("udp6", factory));
     }
 
-    std::set<shared_ptr<face::LpFaceWrapper>> multicastFacesToRemove;
+    std::set<shared_ptr<Face>> multicastFacesToRemove;
     for (const auto& i : factory->getMulticastFaces()) {
       multicastFacesToRemove.insert(i.second);
     }
@@ -752,7 +775,7 @@ FaceManager::processSectionEther(const ConfigSection& configSection, bool isDryR
       m_factories.insert(std::make_pair("ether", factory));
     }
 
-    std::set<shared_ptr<EthernetFace>> multicastFacesToRemove;
+    std::set<shared_ptr<Face>> multicastFacesToRemove;
     for (const auto& i : factory->getMulticastFaces()) {
       multicastFacesToRemove.insert(i.second);
     }
@@ -768,7 +791,7 @@ FaceManager::processSectionEther(const ConfigSection& configSection, bool isDryR
           catch (const EthernetFactory::Error& factoryError) {
             NFD_LOG_ERROR(factoryError.what() << ", continuing");
           }
-          catch (const EthernetFace::Error& faceError) {
+          catch (const face::EthernetTransport::Error& faceError) {
             NFD_LOG_ERROR(faceError.what() << ", continuing");
           }
         }

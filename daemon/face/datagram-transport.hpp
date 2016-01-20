@@ -54,12 +54,6 @@ public:
   explicit
   DatagramTransport(typename protocol::socket&& socket);
 
-  virtual void
-  doSend(Transport::Packet&& packet) DECL_OVERRIDE;
-
-  virtual void
-  doClose() DECL_OVERRIDE;
-
   /** \brief Receive datagram, translate buffer into packet, deliver to parent class.
    */
   void
@@ -67,13 +61,19 @@ public:
                   const boost::system::error_code& error);
 
 protected:
-  void
-  handleReceive(const boost::system::error_code& error,
-                size_t nBytesReceived);
+  virtual void
+  doClose() DECL_OVERRIDE;
+
+  virtual void
+  doSend(Transport::Packet&& packet) DECL_OVERRIDE;
 
   void
   handleSend(const boost::system::error_code& error,
              size_t nBytesSent, const Block& payload);
+
+  void
+  handleReceive(const boost::system::error_code& error,
+                size_t nBytesReceived);
 
   void
   processErrorCode(const boost::system::error_code& error);
@@ -84,8 +84,12 @@ protected:
   void
   resetRecentUsage();
 
+  static EndpointId
+  makeEndpointId(const typename protocol::endpoint& ep);
+
 protected:
   typename protocol::socket m_socket;
+  typename protocol::endpoint m_sender;
 
   NFD_LOG_INCLASS_DECLARE();
 
@@ -96,31 +100,18 @@ private:
 
 
 template<class T, class U>
-inline
 DatagramTransport<T, U>::DatagramTransport(typename DatagramTransport::protocol::socket&& socket)
   : m_socket(std::move(socket))
+  , m_hasBeenUsedRecently(false)
 {
-  m_socket.async_receive(boost::asio::buffer(m_receiveBuffer),
-                         bind(&DatagramTransport<T, U>::handleReceive, this,
-                              boost::asio::placeholders::error,
-                              boost::asio::placeholders::bytes_transferred));
+  m_socket.async_receive_from(boost::asio::buffer(m_receiveBuffer), m_sender,
+                              bind(&DatagramTransport<T, U>::handleReceive, this,
+                                   boost::asio::placeholders::error,
+                                   boost::asio::placeholders::bytes_transferred));
 }
 
 template<class T, class U>
-inline void
-DatagramTransport<T, U>::doSend(Transport::Packet&& packet)
-{
-  NFD_LOG_FACE_TRACE(__func__);
-
-  m_socket.async_send(boost::asio::buffer(packet.packet),
-                      bind(&DatagramTransport<T, U>::handleSend, this,
-                           boost::asio::placeholders::error,
-                           boost::asio::placeholders::bytes_transferred,
-                           packet.packet));
-}
-
-template<class T, class U>
-inline void
+void
 DatagramTransport<T, U>::doClose()
 {
   NFD_LOG_FACE_TRACE(__func__);
@@ -141,7 +132,20 @@ DatagramTransport<T, U>::doClose()
 }
 
 template<class T, class U>
-inline void
+void
+DatagramTransport<T, U>::doSend(Transport::Packet&& packet)
+{
+  NFD_LOG_FACE_TRACE(__func__);
+
+  m_socket.async_send(boost::asio::buffer(packet.packet),
+                      bind(&DatagramTransport<T, U>::handleSend, this,
+                           boost::asio::placeholders::error,
+                           boost::asio::placeholders::bytes_transferred,
+                           packet.packet));
+}
+
+template<class T, class U>
+void
 DatagramTransport<T, U>::receiveDatagram(const uint8_t* buffer, size_t nBytesReceived,
                                          const boost::system::error_code& error)
 {
@@ -163,27 +167,29 @@ DatagramTransport<T, U>::receiveDatagram(const uint8_t* buffer, size_t nBytesRec
     // This packet won't extend the face lifetime
     return;
   }
-
   m_hasBeenUsedRecently = true;
-  this->receive(Transport::Packet(std::move(element)));
+
+  Transport::Packet tp(std::move(element));
+  tp.remoteEndpoint = makeEndpointId(m_sender);
+  this->receive(std::move(tp));
 }
 
 template<class T, class U>
-inline void
+void
 DatagramTransport<T, U>::handleReceive(const boost::system::error_code& error,
                                        size_t nBytesReceived)
 {
   receiveDatagram(m_receiveBuffer.data(), nBytesReceived, error);
 
   if (m_socket.is_open())
-    m_socket.async_receive(boost::asio::buffer(m_receiveBuffer),
-                           bind(&DatagramTransport<T, U>::handleReceive, this,
-                                boost::asio::placeholders::error,
-                                boost::asio::placeholders::bytes_transferred));
+    m_socket.async_receive_from(boost::asio::buffer(m_receiveBuffer), m_sender,
+                                bind(&DatagramTransport<T, U>::handleReceive, this,
+                                     boost::asio::placeholders::error,
+                                     boost::asio::placeholders::bytes_transferred));
 }
 
 template<class T, class U>
-inline void
+void
 DatagramTransport<T, U>::handleSend(const boost::system::error_code& error,
                                     size_t nBytesSent, const Block& payload)
 // 'payload' is unused; it's needed to retain the underlying Buffer
@@ -195,7 +201,7 @@ DatagramTransport<T, U>::handleSend(const boost::system::error_code& error,
 }
 
 template<class T, class U>
-inline void
+void
 DatagramTransport<T, U>::processErrorCode(const boost::system::error_code& error)
 {
   NFD_LOG_FACE_TRACE(__func__);
@@ -231,6 +237,13 @@ inline void
 DatagramTransport<T, U>::resetRecentUsage()
 {
   m_hasBeenUsedRecently = false;
+}
+
+template<class T, class U>
+inline Transport::EndpointId
+DatagramTransport<T, U>::makeEndpointId(const typename protocol::endpoint& ep)
+{
+  return 0;
 }
 
 } // namespace face

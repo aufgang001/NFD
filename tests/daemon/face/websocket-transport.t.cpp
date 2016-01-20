@@ -24,11 +24,10 @@
  */
 
 #include "face/websocket-transport.hpp"
-#include "face/lp-face.hpp"
+#include "face/face.hpp"
 #include "dummy-receive-link-service.hpp"
-#include "transport-properties.hpp"
+#include "transport-test-common.hpp"
 
-#include "tests/test-common.hpp"
 #include "tests/limited-io.hpp"
 
 namespace nfd {
@@ -39,6 +38,8 @@ using namespace nfd::tests;
 namespace ip = boost::asio::ip;
 
 BOOST_AUTO_TEST_SUITE(Face)
+
+using nfd::Face;
 
 /** \brief a fixture that accepts a single WebSocket connection from a client
  */
@@ -98,7 +99,7 @@ public:
   void
   makeFace(const time::milliseconds& pingInterval = time::milliseconds(10000))
   {
-    face = make_unique<LpFace>(
+    face = make_unique<Face>(
              make_unique<DummyReceiveLinkService>(),
              make_unique<WebSocketTransport>(serverHdl, ref(server), pingInterval));
     transport = static_cast<WebSocketTransport*>(face->getTransport());
@@ -198,7 +199,7 @@ public:
 
   websocket::Server server;
   websocketpp::connection_hdl serverHdl;
-  unique_ptr<LpFace> face;
+  unique_ptr<Face> face;
   WebSocketTransport* transport;
   std::vector<Transport::Packet>* serverReceivedPackets;
 
@@ -234,6 +235,8 @@ BOOST_AUTO_TEST_CASE(PingPong)
   BOOST_CHECK_EQUAL(limitedIo.run(2, // clientHandlePing, serverHandlePong
                     time::milliseconds(1500)), LimitedIo::EXCEED_OPS);
   BOOST_CHECK_EQUAL(transport->getState(), TransportState::UP);
+  BOOST_CHECK_EQUAL(transport->getCounters().nOutPings, 1);
+  BOOST_CHECK_EQUAL(transport->getCounters().nInPongs, 1);
 
   this->clientShouldPong = false;
   BOOST_CHECK_EQUAL(limitedIo.run(2, // clientHandlePing, serverHandlePongTimeout
@@ -241,6 +244,8 @@ BOOST_AUTO_TEST_CASE(PingPong)
   BOOST_CHECK_MESSAGE(transport->getState() == TransportState::FAILED ||
                       transport->getState() == TransportState::CLOSED,
                       "expect FAILED or CLOSED state, actual state=" << transport->getState());
+  BOOST_CHECK_EQUAL(transport->getCounters().nOutPings, 2);
+  BOOST_CHECK_EQUAL(transport->getCounters().nInPongs, 1);
 }
 
 BOOST_AUTO_TEST_CASE(Send)

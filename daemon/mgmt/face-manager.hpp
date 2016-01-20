@@ -27,18 +27,15 @@
 #define NFD_DAEMON_MGMT_FACE_MANAGER_HPP
 
 #include "manager-base.hpp"
-#include "face/local-face.hpp"
+#include <ndn-cxx/management/nfd-face-status.hpp>
 #include <ndn-cxx/management/nfd-face-query-filter.hpp>
+#include "face/face.hpp"
 
 namespace nfd {
 
 class FaceTable;
 class NetworkInterfaceInfo;
 class ProtocolFactory;
-
-namespace face {
-class LpFace;
-} // namespace face
 
 /**
  * @brief implement the Face Management of NFD Management Protocol.
@@ -88,18 +85,10 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE: // helpers for ControlCommand
   afterCreateFaceFailure(const std::string& reason,
                          const ndn::mgmt::CommandContinuation& done);
 
-  struct ExtractLocalControlParametersResult
-  {
-    bool isValid;
-    shared_ptr<LocalFace> face;
-    face::LpFace* lpFace;
-    LocalControlFeature feature;
-  };
-
-  ExtractLocalControlParametersResult
-  extractLocalControlParameters(const Interest& request,
-                                const ControlParameters& parameters,
-                                const ndn::mgmt::CommandContinuation& done);
+  Face*
+  findFaceForLocalControl(const Interest& request,
+                          const ControlParameters& parameters,
+                          const ndn::mgmt::CommandContinuation& done);
 
 PUBLIC_WITH_TESTS_ELSE_PRIVATE: // StatusDataset
   void
@@ -117,6 +106,18 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE: // StatusDataset
 private: // helpers for StatusDataset handler
   bool
   doesMatchFilter(const ndn::nfd::FaceQueryFilter& filter, shared_ptr<Face> face);
+
+  /** \brief get status of face, including properties and counters
+   */
+  static ndn::nfd::FaceStatus
+  collectFaceStatus(const Face& face, const time::steady_clock::TimePoint& now);
+
+  /** \brief copy face properties into traits
+   *  \tparam FaceTraits either FaceStatus or FaceEventNotification
+   */
+  template<typename FaceTraits>
+  static void
+  collectFaceProperties(const Face& face, FaceTraits& traits);
 
 private: // NotificationStream
   void

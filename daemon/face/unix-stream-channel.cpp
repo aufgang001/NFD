@@ -25,7 +25,6 @@
 
 #include "unix-stream-channel.hpp"
 #include "generic-link-service.hpp"
-#include "lp-face-wrapper.hpp"
 #include "unix-stream-transport.hpp"
 #include "core/global-io.hpp"
 
@@ -58,7 +57,7 @@ UnixStreamChannel::~UnixStreamChannel()
 
 void
 UnixStreamChannel::listen(const FaceCreatedCallback& onFaceCreated,
-                          const ConnectFailedCallback& onAcceptFailed,
+                          const FaceCreationFailedCallback& onAcceptFailed,
                           int backlog/* = acceptor::max_connections*/)
 {
   if (isListening()) {
@@ -109,7 +108,7 @@ UnixStreamChannel::listen(const FaceCreatedCallback& onFaceCreated,
 
 void
 UnixStreamChannel::accept(const FaceCreatedCallback& onFaceCreated,
-                          const ConnectFailedCallback& onAcceptFailed)
+                          const FaceCreationFailedCallback& onAcceptFailed)
 {
   m_acceptor.async_accept(m_socket, bind(&UnixStreamChannel::handleAccept, this,
                                          boost::asio::placeholders::error,
@@ -119,7 +118,7 @@ UnixStreamChannel::accept(const FaceCreatedCallback& onFaceCreated,
 void
 UnixStreamChannel::handleAccept(const boost::system::error_code& error,
                                 const FaceCreatedCallback& onFaceCreated,
-                                const ConnectFailedCallback& onAcceptFailed)
+                                const FaceCreationFailedCallback& onAcceptFailed)
 {
   if (error) {
     if (error == boost::asio::error::operation_aborted) // when the socket is closed by someone
@@ -135,8 +134,7 @@ UnixStreamChannel::handleAccept(const boost::system::error_code& error,
 
   auto linkService = make_unique<face::GenericLinkService>();
   auto transport = make_unique<face::UnixStreamTransport>(std::move(m_socket));
-  auto lpFace = make_unique<face::LpFace>(std::move(linkService), std::move(transport));
-  auto face = make_shared<face::LpFaceWrapper>(std::move(lpFace));
+  auto face = make_shared<Face>(std::move(linkService), std::move(transport));
   onFaceCreated(face);
 
   // prepare accepting the next connection

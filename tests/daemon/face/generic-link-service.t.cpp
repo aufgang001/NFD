@@ -24,7 +24,7 @@
  */
 
 #include "face/generic-link-service.hpp"
-#include "face/lp-face.hpp"
+#include "face/face.hpp"
 #include "dummy-transport.hpp"
 
 #include "tests/test-common.hpp"
@@ -36,6 +36,8 @@ namespace tests {
 using namespace nfd::tests;
 
 BOOST_AUTO_TEST_SUITE(Face)
+
+using nfd::Face;
 
 class GenericLinkServiceFixture : public BaseFixture
 {
@@ -52,8 +54,8 @@ protected:
   void
   initialize(const GenericLinkService::Options& options)
   {
-    face.reset(new LpFace(make_unique<GenericLinkService>(options),
-                          make_unique<DummyTransport>()));
+    face.reset(new Face(make_unique<GenericLinkService>(options),
+                        make_unique<DummyTransport>()));
     service = static_cast<GenericLinkService*>(face->getLinkService());
     transport = static_cast<DummyTransport*>(face->getTransport());
 
@@ -66,7 +68,7 @@ protected:
   }
 
 protected:
-  unique_ptr<LpFace> face;
+  unique_ptr<Face> face;
   GenericLinkService* service;
   DummyTransport* transport;
   std::vector<Interest> receivedInterests;
@@ -90,8 +92,12 @@ BOOST_AUTO_TEST_CASE(SendInterest)
 
   face->sendInterest(*interest1);
 
+  BOOST_CHECK_EQUAL(service->getCounters().nOutInterests, 1);
   BOOST_REQUIRE_EQUAL(transport->sentPackets.size(), 1);
-  BOOST_CHECK(transport->sentPackets.back().packet == interest1->wireEncode());
+  lp::Packet interest1pkt;
+  BOOST_REQUIRE_NO_THROW(interest1pkt.wireDecode(transport->sentPackets.back().packet));
+  BOOST_CHECK(interest1pkt.has<lp::FragmentField>());
+  BOOST_CHECK(!interest1pkt.has<lp::SequenceField>());
 }
 
 BOOST_AUTO_TEST_CASE(SendData)
@@ -105,8 +111,12 @@ BOOST_AUTO_TEST_CASE(SendData)
 
   face->sendData(*data1);
 
+  BOOST_CHECK_EQUAL(service->getCounters().nOutData, 1);
   BOOST_REQUIRE_EQUAL(transport->sentPackets.size(), 1);
-  BOOST_CHECK(transport->sentPackets.back().packet == data1->wireEncode());
+  lp::Packet data1pkt;
+  BOOST_REQUIRE_NO_THROW(data1pkt.wireDecode(transport->sentPackets.back().packet));
+  BOOST_CHECK(data1pkt.has<lp::FragmentField>());
+  BOOST_CHECK(!data1pkt.has<lp::SequenceField>());
 }
 
 BOOST_AUTO_TEST_CASE(SendNack)
@@ -120,11 +130,13 @@ BOOST_AUTO_TEST_CASE(SendNack)
 
   face->sendNack(nack1);
 
+  BOOST_CHECK_EQUAL(service->getCounters().nOutNacks, 1);
   BOOST_REQUIRE_EQUAL(transport->sentPackets.size(), 1);
   lp::Packet nack1pkt;
   BOOST_REQUIRE_NO_THROW(nack1pkt.wireDecode(transport->sentPackets.back().packet));
-  BOOST_CHECK_EQUAL(nack1pkt.has<lp::NackField>(), true);
-  BOOST_CHECK_EQUAL(nack1pkt.has<lp::FragmentField>(), true);
+  BOOST_CHECK(nack1pkt.has<lp::NackField>());
+  BOOST_CHECK(nack1pkt.has<lp::FragmentField>());
+  BOOST_CHECK(!nack1pkt.has<lp::SequenceField>());
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveBareInterest)
@@ -138,6 +150,7 @@ BOOST_AUTO_TEST_CASE(ReceiveBareInterest)
 
   transport->receivePacket(interest1->wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInInterests, 1);
   BOOST_REQUIRE_EQUAL(receivedInterests.size(), 1);
   BOOST_CHECK_EQUAL(receivedInterests.back(), *interest1);
 }
@@ -157,6 +170,7 @@ BOOST_AUTO_TEST_CASE(ReceiveInterest)
 
   transport->receivePacket(lpPacket.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInInterests, 1);
   BOOST_REQUIRE_EQUAL(receivedInterests.size(), 1);
   BOOST_CHECK_EQUAL(receivedInterests.back(), *interest1);
 }
@@ -172,6 +186,7 @@ BOOST_AUTO_TEST_CASE(ReceiveBareData)
 
   transport->receivePacket(data1->wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInData, 1);
   BOOST_REQUIRE_EQUAL(receivedData.size(), 1);
   BOOST_CHECK_EQUAL(receivedData.back(), *data1);
 }
@@ -191,6 +206,7 @@ BOOST_AUTO_TEST_CASE(ReceiveData)
 
   transport->receivePacket(lpPacket.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInData, 1);
   BOOST_REQUIRE_EQUAL(receivedData.size(), 1);
   BOOST_CHECK_EQUAL(receivedData.back(), *data1);
 }
@@ -210,7 +226,10 @@ BOOST_AUTO_TEST_CASE(ReceiveNack)
 
   transport->receivePacket(lpPacket.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNacks, 1);
   BOOST_REQUIRE_EQUAL(receivedNacks.size(), 1);
+  BOOST_CHECK(receivedNacks.back().getReason() == nack1.getReason());
+  BOOST_CHECK(receivedNacks.back().getInterest() == nack1.getInterest());
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveIdlePacket)
@@ -225,7 +244,8 @@ BOOST_AUTO_TEST_CASE(ReceiveIdlePacket)
 
   BOOST_CHECK_NO_THROW(transport->receivePacket(lpPacket.wireEncode()));
 
-  // IDLE packet should be ignored
+  // IDLE packet should be ignored, but is not an error
+  BOOST_CHECK_EQUAL(service->getCounters().nInLpInvalid, 0);
   BOOST_CHECK_EQUAL(receivedInterests.size(), 0);
   BOOST_CHECK_EQUAL(receivedData.size(), 0);
   BOOST_CHECK_EQUAL(receivedNacks.size(), 0);
@@ -236,9 +256,112 @@ BOOST_AUTO_TEST_SUITE_END() // SimpleSendReceive
 
 BOOST_AUTO_TEST_SUITE(Fragmentation)
 
+BOOST_AUTO_TEST_CASE(FragmentationDisabledExceedMtuDrop)
+{
+  // Initialize with Options that disable fragmentation
+  GenericLinkService::Options options;
+  options.allowFragmentation = false;
+  initialize(options);
+
+  transport->setMtu(55);
+
+  shared_ptr<Data> data = makeData("/test/data/123456789/987654321/123456789");
+  face->sendData(*data);
+
+  BOOST_CHECK_EQUAL(transport->sentPackets.size(), 0);
+  BOOST_CHECK_EQUAL(service->getCounters().nOutOverMtu, 1);
+}
+
+BOOST_AUTO_TEST_CASE(FragmentationUnlimitedMtu)
+{
+  // Initialize with Options that enable fragmentation
+  GenericLinkService::Options options;
+  options.allowFragmentation = true;
+  initialize(options);
+
+  transport->setMtu(MTU_UNLIMITED);
+
+  shared_ptr<Data> data = makeData("/test/data/123456789/987654321/123456789");
+  face->sendData(*data);
+
+  BOOST_CHECK_EQUAL(transport->sentPackets.size(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(FragmentationUnderMtu)
+{
+  // Initialize with Options that enable fragmentation
+  GenericLinkService::Options options;
+  options.allowFragmentation = true;
+  initialize(options);
+
+  transport->setMtu(105);
+
+  shared_ptr<Data> data = makeData("/test/data/123456789/987654321/123456789");
+  face->sendData(*data);
+
+  BOOST_CHECK_EQUAL(transport->sentPackets.size(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(FragmentationOverMtu)
+{
+  // Initialize with Options that enable fragmentation
+  GenericLinkService::Options options;
+  options.allowFragmentation = true;
+  initialize(options);
+
+  transport->setMtu(60);
+
+  shared_ptr<Data> data = makeData("/test/data/123456789/987654321/123456789");
+  face->sendData(*data);
+
+  BOOST_CHECK_GT(transport->sentPackets.size(), 1);
+}
+
+BOOST_AUTO_TEST_CASE(ReassembleFragments)
+{
+  // Initialize with Options that enables reassembly
+  GenericLinkService::Options options;
+  options.allowReassembly = true;
+  initialize(options);
+
+  shared_ptr<Interest> interest = makeInterest(
+    "/mt7P130BHXmtLm5dwaY5dpUM6SWYNN2B05g7y3UhsQuLvDdnTWdNnTeEiLuW3FAbJRSG3tzQ0UfaSEgG9rvYHmsKtgPMag1Hj4Tr");
+  lp::Packet packet(interest->wireEncode());
+
+  // fragment the packet
+  LpFragmenter fragmenter;
+  size_t mtu = 100;
+  bool isOk = false;
+  std::vector<lp::Packet> frags;
+  std::tie(isOk, frags) = fragmenter.fragmentPacket(packet, mtu);
+  BOOST_REQUIRE(isOk);
+  BOOST_CHECK_GT(frags.size(), 1);
+
+  // receive the fragments
+  for (ssize_t fragIndex = frags.size() - 1; fragIndex >= 0; --fragIndex) {
+    size_t sequence = 1000 + fragIndex;
+    frags[fragIndex].add<lp::SequenceField>(sequence);
+
+    transport->receivePacket(frags[fragIndex].wireEncode());
+
+    if (fragIndex > 0) {
+      BOOST_CHECK(receivedInterests.empty());
+      BOOST_CHECK_EQUAL(service->getCounters().nReassembling, 1);
+    }
+    else {
+      BOOST_CHECK_EQUAL(receivedInterests.size(), 1);
+      BOOST_CHECK_EQUAL(receivedInterests.back(), *interest);
+      BOOST_CHECK_EQUAL(service->getCounters().nReassembling, 0);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ReassemblyDisabledDropFragIndex)
 {
-  // TODO#3171 Initialize with Options that disables reassembly
+  // Initialize with Options that disables reassembly
+  GenericLinkService::Options options;
+  options.allowReassembly = false;
+  initialize(options);
 
   shared_ptr<Interest> interest = makeInterest("/IgFe6NvH");
   lp::Packet packet(interest->wireEncode());
@@ -246,12 +369,16 @@ BOOST_AUTO_TEST_CASE(ReassemblyDisabledDropFragIndex)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInLpInvalid, 0); // not an error
   BOOST_CHECK(receivedInterests.empty());
 }
 
 BOOST_AUTO_TEST_CASE(ReassemblyDisabledDropFragCount)
 {
-  // TODO#3171 Initialize with Options that disables reassembly
+  // Initialize with Options that disables reassembly
+  GenericLinkService::Options options;
+  options.allowReassembly = false;
+  initialize(options);
 
   shared_ptr<Interest> interest = makeInterest("/SeGmEjvIVX");
   lp::Packet packet(interest->wireEncode());
@@ -259,6 +386,7 @@ BOOST_AUTO_TEST_CASE(ReassemblyDisabledDropFragCount)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInLpInvalid, 0); // not an error
   BOOST_CHECK(receivedInterests.empty());
 }
 
@@ -281,8 +409,9 @@ BOOST_AUTO_TEST_CASE(ReceiveNextHopFaceId)
   transport->receivePacket(packet.wireEncode());
 
   BOOST_REQUIRE_EQUAL(receivedInterests.size(), 1);
-  BOOST_REQUIRE(receivedInterests.back().getLocalControlHeader().hasNextHopFaceId());
-  BOOST_CHECK_EQUAL(receivedInterests.back().getNextHopFaceId(), 1000);
+  shared_ptr<lp::NextHopFaceIdTag> tag = receivedInterests.back().getTag<lp::NextHopFaceIdTag>();
+  BOOST_REQUIRE(tag != nullptr);
+  BOOST_CHECK_EQUAL(*tag, 1000);
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveNextHopFaceIdDisabled)
@@ -298,6 +427,7 @@ BOOST_AUTO_TEST_CASE(ReceiveNextHopFaceIdDisabled)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 0); // not an error
   BOOST_CHECK(receivedInterests.empty());
 }
 
@@ -314,6 +444,7 @@ BOOST_AUTO_TEST_CASE(ReceiveNextHopFaceIdDropData)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 1);
   BOOST_CHECK(receivedData.empty());
 }
 
@@ -333,6 +464,7 @@ BOOST_AUTO_TEST_CASE(ReceiveNextHopFaceIdDropNack)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 1);
   BOOST_CHECK(receivedNacks.empty());
 }
 
@@ -345,16 +477,14 @@ BOOST_AUTO_TEST_CASE(ReceiveCacheControl)
 
   shared_ptr<Data> data = makeData("/12345678");
   lp::Packet packet(data->wireEncode());
-  lp::CachePolicy policy;
-  policy.setPolicy(lp::CachePolicyType::NO_CACHE);
-  packet.set<lp::CachePolicyField>(policy);
+  packet.set<lp::CachePolicyField>(lp::CachePolicy().setPolicy(lp::CachePolicyType::NO_CACHE));
 
   transport->receivePacket(packet.wireEncode());
 
   BOOST_REQUIRE_EQUAL(receivedData.size(), 1);
-  BOOST_REQUIRE(receivedData.back().getLocalControlHeader().hasCachingPolicy());
-  BOOST_CHECK_EQUAL(receivedData.back().getCachingPolicy(),
-                    ndn::nfd::LocalControlHeader::CachingPolicy::NO_CACHE);
+  shared_ptr<lp::CachePolicyTag> tag = receivedData.back().getTag<lp::CachePolicyTag>();
+  BOOST_REQUIRE(tag != nullptr);
+  BOOST_CHECK_EQUAL(tag->get().getPolicy(), lp::CachePolicyType::NO_CACHE);
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveCacheControlDisabled)
@@ -372,8 +502,9 @@ BOOST_AUTO_TEST_CASE(ReceiveCacheControlDisabled)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 0); // not an error
   BOOST_REQUIRE_EQUAL(receivedData.size(), 1);
-  BOOST_CHECK(!receivedData.back().getLocalControlHeader().hasCachingPolicy());
+  BOOST_CHECK(receivedData.back().getTag<lp::CachePolicyTag>() == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveCacheControlDropInterest)
@@ -391,6 +522,7 @@ BOOST_AUTO_TEST_CASE(ReceiveCacheControlDropInterest)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 1);
   BOOST_CHECK(receivedInterests.empty());
 }
 
@@ -410,6 +542,7 @@ BOOST_AUTO_TEST_CASE(ReceiveCacheControlDropNack)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 1);
   BOOST_CHECK(receivedNacks.empty());
 }
 
@@ -421,7 +554,7 @@ BOOST_AUTO_TEST_CASE(SendIncomingFaceId)
   initialize(options);
 
   shared_ptr<Interest> interest = makeInterest("/12345678");
-  interest->setIncomingFaceId(1000);
+  interest->setTag(make_shared<lp::IncomingFaceIdTag>(1000));
 
   face->sendInterest(*interest);
 
@@ -439,7 +572,7 @@ BOOST_AUTO_TEST_CASE(SendIncomingFaceIdDisabled)
   initialize(options);
 
   shared_ptr<Interest> interest = makeInterest("/12345678");
-  interest->setIncomingFaceId(1000);
+  interest->setTag(make_shared<lp::IncomingFaceIdTag>(1000));
 
   face->sendInterest(*interest);
 
@@ -461,8 +594,9 @@ BOOST_AUTO_TEST_CASE(ReceiveIncomingFaceIdIgnoreInterest)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 0); // not an error
   BOOST_REQUIRE_EQUAL(receivedInterests.size(), 1);
-  BOOST_CHECK(!receivedInterests.back().getLocalControlHeader().hasIncomingFaceId());
+  BOOST_CHECK(receivedInterests.back().getTag<lp::IncomingFaceIdTag>() == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveIncomingFaceIdIgnoreData)
@@ -478,8 +612,9 @@ BOOST_AUTO_TEST_CASE(ReceiveIncomingFaceIdIgnoreData)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 0); // not an error
   BOOST_REQUIRE_EQUAL(receivedData.size(), 1);
-  BOOST_CHECK(!receivedData.back().getLocalControlHeader().hasIncomingFaceId());
+  BOOST_CHECK(receivedData.back().getTag<lp::IncomingFaceIdTag>() == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(ReceiveIncomingFaceIdIgnoreNack)
@@ -496,8 +631,9 @@ BOOST_AUTO_TEST_CASE(ReceiveIncomingFaceIdIgnoreNack)
 
   transport->receivePacket(packet.wireEncode());
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInNetInvalid, 0); // not an error
   BOOST_REQUIRE_EQUAL(receivedNacks.size(), 1);
-  BOOST_CHECK(!receivedNacks.back().getLocalControlHeader().hasIncomingFaceId());
+  BOOST_CHECK(receivedNacks.back().getTag<lp::IncomingFaceIdTag>() == nullptr);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // LocalFields
@@ -516,6 +652,7 @@ BOOST_AUTO_TEST_CASE(WrongTlvType)
 
   BOOST_CHECK_NO_THROW(transport->receivePacket(packet));
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInLpInvalid, 1);
   BOOST_CHECK_EQUAL(receivedInterests.size(), 0);
   BOOST_CHECK_EQUAL(receivedData.size(), 0);
   BOOST_CHECK_EQUAL(receivedNacks.size(), 0);
@@ -533,6 +670,7 @@ BOOST_AUTO_TEST_CASE(Unparsable)
 
   BOOST_CHECK_NO_THROW(transport->receivePacket(packet));
 
+  BOOST_CHECK_EQUAL(service->getCounters().nInLpInvalid, 1);
   BOOST_CHECK_EQUAL(receivedInterests.size(), 0);
   BOOST_CHECK_EQUAL(receivedData.size(), 0);
   BOOST_CHECK_EQUAL(receivedNacks.size(), 0);

@@ -43,7 +43,8 @@ public:
                  const std::string& remoteUri = "dummy://",
                  ndn::nfd::FaceScope scope = ndn::nfd::FACE_SCOPE_NON_LOCAL,
                  ndn::nfd::FacePersistency persistency = ndn::nfd::FACE_PERSISTENCY_PERSISTENT,
-                 ndn::nfd::LinkType linkType = ndn::nfd::LINK_TYPE_POINT_TO_POINT)
+                 ndn::nfd::LinkType linkType = ndn::nfd::LINK_TYPE_POINT_TO_POINT,
+                 ssize_t mtu = MTU_UNLIMITED)
     : isClosed(false)
   {
     this->setLocalUri(FaceUri(localUri));
@@ -51,7 +52,13 @@ public:
     this->setScope(scope);
     this->setPersistency(persistency);
     this->setLinkType(linkType);
-    this->setMtu(MTU_UNLIMITED);
+    this->setMtu(mtu);
+  }
+
+  void
+  setMtu(ssize_t mtu)
+  {
+    this->Transport::setMtu(mtu);
   }
 
   void
@@ -72,11 +79,19 @@ public:
     this->receive(Packet(std::move(block)));
   }
 
+protected:
+  virtual void
+  beforeChangePersistency(ndn::nfd::FacePersistency newPersistency) DECL_OVERRIDE
+  {
+    // accept everything
+  }
+
 private:
   virtual void
   doClose() DECL_OVERRIDE
   {
     isClosed = true;
+    this->setState(TransportState::CLOSED);
   }
 
   virtual void

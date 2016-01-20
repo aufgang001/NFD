@@ -24,10 +24,8 @@
  */
 
 #include "face/null-face.hpp"
-#include "face/lp-face-wrapper.hpp"
-#include "transport-properties.hpp"
 
-#include "tests/test-common.hpp"
+#include "transport-test-common.hpp"
 
 namespace nfd {
 namespace face {
@@ -42,8 +40,7 @@ using nfd::Face;
 
 BOOST_AUTO_TEST_CASE(StaticProperties)
 {
-  shared_ptr<Face> faceW = makeNullFace(FaceUri("testnull://hhppt12sy"));
-  LpFace* face = static_pointer_cast<LpFaceWrapper>(faceW)->getLpFace();
+  shared_ptr<Face> face = makeNullFace(FaceUri("testnull://hhppt12sy"));
   checkStaticPropertiesInitialized(*face->getTransport());
 
   BOOST_CHECK_EQUAL(face->getLocalUri(), FaceUri("testnull://hhppt12sy"));

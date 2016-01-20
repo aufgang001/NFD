@@ -27,7 +27,6 @@
 #define NFD_DAEMON_FACE_UDP_CHANNEL_HPP
 
 #include "channel.hpp"
-#include "lp-face-wrapper.hpp"
 
 namespace nfd {
 
@@ -55,6 +54,23 @@ public:
              const time::seconds& timeout);
 
   /**
+   * \brief Get number of faces in the channel
+   */
+  size_t
+  size() const;
+
+  /**
+   * \brief Create a face by establishing connection to remote endpoint
+   *
+   * \throw UdpChannel::Error if bind or connect on the socket fail
+   */
+  void
+  connect(const udp::Endpoint& remoteEndpoint,
+          ndn::nfd::FacePersistency persistency,
+          const FaceCreatedCallback& onFaceCreated,
+          const FaceCreationFailedCallback& onConnectFailed);
+
+  /**
    * \brief Enable listening on the local endpoint, accept connections,
    *        and create faces when remote host makes a connection
    * \param onFaceCreated  Callback to notify successful creation of the face
@@ -68,31 +84,15 @@ public:
    */
   void
   listen(const FaceCreatedCallback& onFaceCreated,
-         const ConnectFailedCallback& onReceiveFailed);
-
-  /**
-   * \brief Create a face by establishing connection to remote endpoint
-   *
-   * \throw UdpChannel::Error if bind or connect on the socket fail
-   */
-  void
-  connect(const udp::Endpoint& remoteEndpoint,
-          ndn::nfd::FacePersistency persistency,
-          const FaceCreatedCallback& onFaceCreated,
-          const ConnectFailedCallback& onConnectFailed);
-
-  /**
-   * \brief Get number of faces in the channel
-   */
-  size_t
-  size() const;
+         const FaceCreationFailedCallback& onReceiveFailed);
 
   bool
   isListening() const;
 
 private:
-  std::pair<bool, shared_ptr<face::LpFaceWrapper>>
-  createFace(const udp::Endpoint& remoteEndpoint, ndn::nfd::FacePersistency persistency);
+  void
+  waitForNewPeer(const FaceCreatedCallback& onFaceCreated,
+                 const FaceCreationFailedCallback& onReceiveFailed);
 
   /**
    * \brief The channel has received a new packet from a remote
@@ -102,10 +102,13 @@ private:
   handleNewPeer(const boost::system::error_code& error,
                 size_t nBytesReceived,
                 const FaceCreatedCallback& onFaceCreated,
-                const ConnectFailedCallback& onReceiveFailed);
+                const FaceCreationFailedCallback& onReceiveFailed);
+
+  std::pair<bool, shared_ptr<Face>>
+  createFace(const udp::Endpoint& remoteEndpoint, ndn::nfd::FacePersistency persistency);
 
 private:
-  std::map<udp::Endpoint, shared_ptr<face::LpFaceWrapper>> m_channelFaces;
+  std::map<udp::Endpoint, shared_ptr<Face>> m_channelFaces;
 
   udp::Endpoint m_localEndpoint;
 

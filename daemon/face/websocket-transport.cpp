@@ -56,7 +56,8 @@ WebSocketTransport::WebSocketTransport(websocketpp::connection_hdl hdl,
   NFD_LOG_FACE_INFO("Creating transport");
 }
 
-void WebSocketTransport::beforeChangePersistency(ndn::nfd::FacePersistency newPersistency)
+void
+WebSocketTransport::beforeChangePersistency(ndn::nfd::FacePersistency newPersistency)
 {
   if (newPersistency != ndn::nfd::FACE_PERSISTENCY_ON_DEMAND) {
     BOOST_THROW_EXCEPTION(
@@ -105,6 +106,8 @@ WebSocketTransport::sendPing()
 {
   NFD_LOG_FACE_TRACE(__func__);
 
+  ++this->nOutPings;
+
   websocketpp::lib::error_code error;
   m_server.ping(m_handle, "NFD-WebSocket", error);
   if (error)
@@ -117,6 +120,8 @@ void
 WebSocketTransport::handlePong()
 {
   NFD_LOG_FACE_TRACE(__func__);
+
+  ++this->nInPongs;
 }
 
 void

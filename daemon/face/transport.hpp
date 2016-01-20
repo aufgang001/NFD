@@ -26,15 +26,14 @@
 #ifndef NFD_DAEMON_FACE_TRANSPORT_HPP
 #define NFD_DAEMON_FACE_TRANSPORT_HPP
 
-#include "common.hpp"
-
-#include "face-counters.hpp"
+#include "core/counter.hpp"
 #include "face-log.hpp"
+#include <ndn-cxx/encoding/nfd-constants.hpp>
 
 namespace nfd {
 namespace face {
 
-class LpFace;
+class Face;
 class LinkService;
 
 /** \brief indicates the state of a transport
@@ -51,6 +50,46 @@ enum class TransportState {
 std::ostream&
 operator<<(std::ostream& os, TransportState state);
 
+/** \brief counters provided by Transport
+ *  \note The type name 'TransportCounters' is implementation detail.
+ *        Use 'Transport::Counters' in public API.
+ */
+class TransportCounters
+{
+public:
+  /** \brief count of incoming packets
+   *
+   *  A 'packet' typically means a top-level TLV block.
+   *  For a datagram-based transport, an incoming packet that cannot be parsed as TLV
+   *  would not be counted.
+   */
+  PacketCounter nInPackets;
+
+  /** \brief count of outgoing packets
+   *
+   *  A 'packet' typically means a top-level TLV block.
+   *  This counter is incremented only if transport is UP.
+   */
+  PacketCounter nOutPackets;
+
+  /** \brief total incoming bytes
+   *
+   *  This counter includes headers imposed by NFD (such as NDNLP),
+   *  but excludes overhead of underlying protocol (such as IP header).
+   *  For a datagram-based transport, an incoming packet that cannot be parsed as TLV
+   *  would not be counted.
+   */
+  ByteCounter nInBytes;
+
+  /** \brief total outgoing bytes
+   *
+   *  This counter includes headers imposed by NFD (such as NDNLP),
+   *  but excludes overhead of underlying protocol (such as IP header).
+   *  This counter is increased only if transport is UP.
+   */
+  ByteCounter nOutBytes;
+};
+
 /** \brief indicates the transport has no limit on payload size
  */
 const ssize_t MTU_UNLIMITED = -1;
@@ -59,10 +98,10 @@ const ssize_t MTU_UNLIMITED = -1;
  */
 const ssize_t MTU_INVALID = -2;
 
-/** \brief the lower part of an LpFace
- *  \sa LpFace
+/** \brief the lower part of a Face
+ *  \sa Face
  */
-class Transport : noncopyable
+class Transport : protected virtual TransportCounters, noncopyable
 {
 public:
   /** \brief identifies an endpoint on the link
@@ -93,6 +132,10 @@ public:
     EndpointId remoteEndpoint;
   };
 
+  /** \brief counters provided by Transport
+   */
+  typedef TransportCounters Counters;
+
   /** \brief constructor
    *
    *  Transport constructor initializes static properties to invalid values.
@@ -111,11 +154,11 @@ public:
    *  \pre setFaceAndLinkService has not been called
    */
   void
-  setFaceAndLinkService(LpFace& face, LinkService& service);
+  setFaceAndLinkService(Face& face, LinkService& service);
 
   /** \return Face to which this Transport is attached
    */
-  const LpFace*
+  const Face*
   getFace() const;
 
   /** \return LinkService to which this Transport is attached
@@ -127,6 +170,9 @@ public:
    */
   LinkService*
   getLinkService();
+
+  virtual const Counters&
+  getCounters() const;
 
 public: // upper interface
   /** \brief request the transport to be closed
@@ -207,6 +253,12 @@ public: // dynamic properties
    */
   signal::Signal<Transport, TransportState/*old*/, TransportState/*new*/> afterStateChange;
 
+  /** \return expiration time of the transport
+   *  \retval time::steady_clock::TimePoint::max() the transport has indefinite lifetime
+   */
+  time::steady_clock::TimePoint
+  getExpirationTime() const;
+
 protected: // properties to be set by subclass
   void
   setLocalUri(const FaceUri& uri);
@@ -233,17 +285,16 @@ protected: // properties to be set by subclass
   void
   setState(TransportState newState);
 
+  void
+  setExpirationTime(const time::steady_clock::TimePoint& expirationTime);
+
 protected: // to be overridden by subclass
   /** \brief invoked before persistency is changed
    *  \throw std::invalid_argument new persistency is not supported
    *  \throw std::runtime_error transition is disallowed
-   *
-   *  Base class implementation does nothing.
    */
   virtual void
-  beforeChangePersistency(ndn::nfd::FacePersistency newPersistency)
-  {
-  }
+  beforeChangePersistency(ndn::nfd::FacePersistency newPersistency) = 0;
 
   /** \brief performs Transport specific operations to close the transport
    *
@@ -265,7 +316,7 @@ private: // to be overridden by subclass
   doSend(Packet&& packet) = 0;
 
 private:
-  LpFace* m_face;
+  Face* m_face;
   LinkService* m_service;
   FaceUri m_localUri;
   FaceUri m_remoteUri;
@@ -274,10 +325,10 @@ private:
   ndn::nfd::LinkType m_linkType;
   ssize_t m_mtu;
   TransportState m_state;
-  LinkLayerCounters* m_counters; // TODO#3177 change into LinkCounters
+  time::steady_clock::TimePoint m_expirationTime;
 };
 
-inline const LpFace*
+inline const Face*
 Transport::getFace() const
 {
   return m_face;
@@ -293,6 +344,12 @@ inline LinkService*
 Transport::getLinkService()
 {
   return m_service;
+}
+
+inline const Transport::Counters&
+Transport::getCounters() const
+{
+  return *this;
 }
 
 inline FaceUri
@@ -337,13 +394,6 @@ Transport::getPersistency() const
   return m_persistency;
 }
 
-inline void
-Transport::setPersistency(ndn::nfd::FacePersistency persistency)
-{
-  this->beforeChangePersistency(persistency);
-  m_persistency = persistency;
-}
-
 inline ndn::nfd::LinkType
 Transport::getLinkType() const
 {
@@ -373,6 +423,18 @@ inline TransportState
 Transport::getState() const
 {
   return m_state;
+}
+
+inline time::steady_clock::TimePoint
+Transport::getExpirationTime() const
+{
+  return m_expirationTime;
+}
+
+inline void
+Transport::setExpirationTime(const time::steady_clock::TimePoint& expirationTime)
+{
+  m_expirationTime = expirationTime;
 }
 
 std::ostream&

@@ -27,7 +27,6 @@
 #define NFD_DAEMON_FACE_TCP_CHANNEL_HPP
 
 #include "channel.hpp"
-#include "lp-face-wrapper.hpp"
 #include "core/scheduler.hpp"
 
 namespace nfd {
@@ -66,7 +65,7 @@ public:
    */
   void
   listen(const FaceCreatedCallback& onFaceCreated,
-         const ConnectFailedCallback& onAcceptFailed,
+         const FaceCreationFailedCallback& onAcceptFailed,
          int backlog = boost::asio::ip::tcp::acceptor::max_connections);
 
   /**
@@ -75,7 +74,7 @@ public:
   void
   connect(const tcp::Endpoint& remoteEndpoint,
           const FaceCreatedCallback& onFaceCreated,
-          const ConnectFailedCallback& onConnectFailed,
+          const FaceCreationFailedCallback& onConnectFailed,
           const time::seconds& timeout = time::seconds(4));
 
   /**
@@ -95,26 +94,26 @@ private:
 
   void
   accept(const FaceCreatedCallback& onFaceCreated,
-         const ConnectFailedCallback& onConnectFailed);
+         const FaceCreationFailedCallback& onAcceptFailed);
 
   void
   handleAccept(const boost::system::error_code& error,
                const FaceCreatedCallback& onFaceCreated,
-               const ConnectFailedCallback& onConnectFailed);
+               const FaceCreationFailedCallback& onAcceptFailed);
 
   void
   handleConnect(const boost::system::error_code& error,
                 const shared_ptr<boost::asio::ip::tcp::socket>& socket,
                 const scheduler::EventId& connectTimeoutEvent,
                 const FaceCreatedCallback& onFaceCreated,
-                const ConnectFailedCallback& onConnectFailed);
+                const FaceCreationFailedCallback& onConnectFailed);
 
   void
   handleConnectTimeout(const shared_ptr<boost::asio::ip::tcp::socket>& socket,
-                       const ConnectFailedCallback& onConnectFailed);
+                       const FaceCreationFailedCallback& onConnectFailed);
 
 private:
-  std::map<tcp::Endpoint, shared_ptr<face::LpFaceWrapper>> m_channelFaces;
+  std::map<tcp::Endpoint, shared_ptr<Face>> m_channelFaces;
 
   tcp::Endpoint m_localEndpoint;
   boost::asio::ip::tcp::acceptor m_acceptor;

@@ -24,79 +24,89 @@
  */
 
 #include "face/face.hpp"
-#include "face/local-face.hpp"
-#include "dummy-face.hpp"
 
 #include "tests/test-common.hpp"
+#include "dummy-face.hpp"
 
 namespace nfd {
+namespace face {
 namespace tests {
 
-BOOST_FIXTURE_TEST_SUITE(FaceFace, BaseFixture)
+using namespace nfd::tests;
 
-BOOST_AUTO_TEST_CASE(Description)
+BOOST_AUTO_TEST_SUITE(Face)
+BOOST_FIXTURE_TEST_SUITE(TestFace, BaseFixture)
+
+// TODO add test cases for getLinkService, getTransport
+// TODO add a test case for static properties
+// TODO add a test case for getState
+
+BOOST_AUTO_TEST_CASE(LinkServiceSendReceive)
 {
-  DummyFace face;
-  face.setDescription("3pFsKrvWr");
-  BOOST_CHECK_EQUAL(face.getDescription(), "3pFsKrvWr");
-}
+  auto face1 = make_shared<DummyFace>();
 
-BOOST_AUTO_TEST_CASE(LocalControlHeaderEnabled)
-{
-  DummyLocalFace face;
+  const size_t nInInterests = 192;
+  const size_t nInData = 91;
+  const size_t nInNacks = 29;
+  const size_t nOutInterests = 202;
+  const size_t nOutData = 128;
+  const size_t nOutNacks = 84;
 
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(), false);
+  size_t nReceivedInterests = 0;
+  size_t nReceivedData = 0;
+  size_t nReceivedNacks = 0;
+  face1->afterReceiveInterest.connect(bind([&nReceivedInterests] { ++nReceivedInterests; }));
+  face1->afterReceiveData.connect(bind([&nReceivedData] { ++nReceivedData; }));
+  face1->afterReceiveNack.connect(bind([&nReceivedNacks] { ++nReceivedNacks; }));
 
-  face.setLocalControlHeaderFeature(LOCAL_CONTROL_FEATURE_INCOMING_FACE_ID, true);
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(), true);
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(LOCAL_CONTROL_FEATURE_INCOMING_FACE_ID), true);
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(
-                         LOCAL_CONTROL_FEATURE_NEXT_HOP_FACE_ID), false);
-
-  face.setLocalControlHeaderFeature(LOCAL_CONTROL_FEATURE_INCOMING_FACE_ID, false);
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(), false);
-  BOOST_CHECK_EQUAL(face.isLocalControlHeaderEnabled(
-                         LOCAL_CONTROL_FEATURE_INCOMING_FACE_ID), false);
-}
-
-class FaceFailTestFace : public DummyFace
-{
-public:
-  FaceFailTestFace()
-    : failCount(0)
-  {
-    this->onFail.connect(bind(&FaceFailTestFace::failHandler, this, _1));
+  for (size_t i = 0; i < nInInterests; ++i) {
+    shared_ptr<Interest> interest = makeInterest("/JSQdqward4");
+    face1->receiveInterest(*interest);
   }
 
-  void
-  failOnce()
-  {
-    this->fail("reason");
+  for (size_t i = 0; i < nInData; ++i) {
+    shared_ptr<Data> data = makeData("/hT8FDigWn1");
+    face1->receiveData(*data);
   }
 
-private:
-  void
-  failHandler(const std::string& reason)
-  {
-    BOOST_CHECK_EQUAL(reason, "reason");
-    ++this->failCount;
+  for (size_t i = 0; i < nInNacks; ++i) {
+    lp::Nack nack = makeNack("/StnEVTj4Ex", 561, lp::NackReason::CONGESTION);
+    face1->receiveNack(nack);
   }
 
-public:
-  int failCount;
-};
+  for (size_t i = 0; i < nOutInterests; ++i) {
+    shared_ptr<Interest> interest = makeInterest("/XyUAFYQDmd");
+    face1->sendInterest(*interest);
+  }
 
-BOOST_AUTO_TEST_CASE(FailTwice)
-{
-  FaceFailTestFace face;
-  BOOST_CHECK_EQUAL(face.failCount, 0);
-  face.failOnce();
-  BOOST_CHECK_EQUAL(face.failCount, 1);
-  face.failOnce();
-  BOOST_CHECK_EQUAL(face.failCount, 1);
+  for (size_t i = 0; i < nOutData; ++i) {
+    shared_ptr<Data> data = makeData("/GigPEtPH6");
+    face1->sendData(*data);
+  }
+
+  for (size_t i = 0; i < nOutNacks; ++i) {
+    lp::Nack nack = makeNack("/9xK6FbwIBM", 365, lp::NackReason::CONGESTION);
+    face1->sendNack(nack);
+  }
+
+  BOOST_CHECK_EQUAL(face1->getCounters().nInInterests, nInInterests);
+  BOOST_CHECK_EQUAL(face1->getCounters().nInData, nInData);
+  BOOST_CHECK_EQUAL(face1->getCounters().nInNacks, nInNacks);
+  BOOST_CHECK_EQUAL(face1->getCounters().nOutInterests, nOutInterests);
+  BOOST_CHECK_EQUAL(face1->getCounters().nOutData, nOutData);
+  BOOST_CHECK_EQUAL(face1->getCounters().nOutNacks, nOutNacks);
+
+  BOOST_CHECK_EQUAL(nReceivedInterests, nInInterests);
+  BOOST_CHECK_EQUAL(nReceivedData, nInData);
+  BOOST_CHECK_EQUAL(nReceivedNacks, nInNacks);
+  BOOST_CHECK_EQUAL(face1->sentInterests.size(), nOutInterests);
+  BOOST_CHECK_EQUAL(face1->sentData.size(), nOutData);
+  BOOST_CHECK_EQUAL(face1->sentNacks.size(), nOutNacks);
 }
 
-BOOST_AUTO_TEST_SUITE_END()
+BOOST_AUTO_TEST_SUITE_END() // TestFace
+BOOST_AUTO_TEST_SUITE_END() // Face
 
 } // namespace tests
+} // namespace face
 } // namespace nfd

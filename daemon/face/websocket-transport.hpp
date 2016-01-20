@@ -33,15 +33,38 @@
 namespace nfd {
 namespace face {
 
-/**
- * \brief A Transport that communicates on a WebSocket connection
+/** \brief counters provided by WebSocketTransport
+ *  \note The type name 'WebSocketTransportCounters' is implementation detail.
+ *        Use 'WebSocketTransport::Counters' in public API.
  */
-class WebSocketTransport : public Transport
+class WebSocketTransportCounters : public virtual Transport::Counters
 {
 public:
+  /** \brief count of outgoing Pings
+   */
+  PacketCounter nOutPings;
+
+  /** \brief count of incoming Pongs
+   */
+  PacketCounter nInPongs;
+};
+
+/** \brief A Transport that communicates on a WebSocket connection
+ */
+class WebSocketTransport DECL_CLASS_FINAL : public Transport
+                                          , protected virtual WebSocketTransportCounters
+{
+public:
+  /** \brief counters provided by WebSocketTransport
+   */
+  typedef WebSocketTransportCounters Counters;
+
   WebSocketTransport(websocketpp::connection_hdl hdl,
                      websocket::Server& server,
                      time::milliseconds pingInterval);
+
+  virtual const Counters&
+  getCounters() const DECL_OVERRIDE;
 
   /** \brief Translates a message into a Block
    *         and delivers it to the link service
@@ -57,14 +80,14 @@ public:
 
 protected:
   virtual void
-  beforeChangePersistency(ndn::nfd::FacePersistency newPersistency) DECL_OVERRIDE;
+  beforeChangePersistency(ndn::nfd::FacePersistency newPersistency) DECL_FINAL;
 
   virtual void
-  doClose() DECL_OVERRIDE;
+  doClose() DECL_FINAL;
 
 private:
   virtual void
-  doSend(Transport::Packet&& packet) DECL_OVERRIDE;
+  doSend(Transport::Packet&& packet) DECL_FINAL;
 
   void
   schedulePing();
@@ -81,6 +104,12 @@ private:
   time::milliseconds m_pingInterval;
   scheduler::ScopedEventId m_pingEventId;
 };
+
+inline const WebSocketTransport::Counters&
+WebSocketTransport::getCounters() const
+{
+  return *this;
+}
 
 } // namespace face
 } // namespace nfd

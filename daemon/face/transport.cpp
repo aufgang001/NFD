@@ -24,8 +24,7 @@
  */
 
 #include "transport.hpp"
-#include "lp-face.hpp"
-#include "link-service.hpp"
+#include "face.hpp"
 
 namespace nfd {
 namespace face {
@@ -65,7 +64,7 @@ Transport::Transport()
   , m_linkType(ndn::nfd::LINK_TYPE_NONE)
   , m_mtu(MTU_INVALID)
   , m_state(TransportState::UP)
-  , m_counters(nullptr)
+  , m_expirationTime(time::steady_clock::TimePoint::max())
 {
 }
 
@@ -74,14 +73,13 @@ Transport::~Transport()
 }
 
 void
-Transport::setFaceAndLinkService(LpFace& face, LinkService& service)
+Transport::setFaceAndLinkService(Face& face, LinkService& service)
 {
   BOOST_ASSERT(m_face == nullptr);
   BOOST_ASSERT(m_service == nullptr);
 
   m_face = &face;
   m_service = &service;
-  m_counters = &m_face->getMutableCounters();
 }
 
 void
@@ -109,8 +107,10 @@ Transport::send(Packet&& packet)
     return;
   }
 
-  // TODO#3177 increment LpPacket counter
-  m_counters->getNOutBytes() += packet.packet.size();
+  if (state == TransportState::UP) {
+    ++this->nOutPackets;
+    this->nOutBytes += packet.packet.size();
+  }
 
   this->doSend(std::move(packet));
 }
@@ -121,10 +121,29 @@ Transport::receive(Packet&& packet)
   BOOST_ASSERT(this->getMtu() == MTU_UNLIMITED ||
                packet.packet.size() <= static_cast<size_t>(this->getMtu()));
 
-  // TODO#3177 increment LpPacket counter
-  m_counters->getNInBytes() += packet.packet.size();
+  ++this->nInPackets;
+  this->nInBytes += packet.packet.size();
 
   m_service->receivePacket(std::move(packet));
+}
+
+void
+Transport::setPersistency(ndn::nfd::FacePersistency newPersistency)
+{
+  if (m_persistency == newPersistency) {
+    return;
+  }
+
+  if (newPersistency == ndn::nfd::FACE_PERSISTENCY_NONE) {
+    throw std::runtime_error("invalid persistency transition");
+  }
+
+  if (m_persistency != ndn::nfd::FACE_PERSISTENCY_NONE) {
+    this->beforeChangePersistency(newPersistency);
+    NFD_LOG_FACE_DEBUG("setPersistency " << m_persistency << " -> " << newPersistency);
+  }
+
+  m_persistency = newPersistency;
 }
 
 void
@@ -171,7 +190,7 @@ std::ostream&
 operator<<(std::ostream& os, const FaceLogHelper<Transport>& flh)
 {
   const Transport& transport = flh.obj;
-  const LpFace* face = transport.getFace();
+  const Face* face = transport.getFace();
   FaceId faceId = face == nullptr ? INVALID_FACEID : face->getId();
 
   os << "[id=" << faceId << ",local=" << transport.getLocalUri()

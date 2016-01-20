@@ -27,7 +27,7 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
     , m_my_logger()
     , m_my_panini_fib()
 {
-    DOUT(std::cout << "DEBUG: start PANINI Strategy" << std::endl;)
+    std::cout << "Start PANINI Strategy" << std::endl;
 
     m_my_panini_fib.set_with_save_probability(false);
     m_my_panini_fib.set_is_nac(false);
@@ -40,7 +40,7 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
 
 my_panini::~my_panini()
 {
-    DOUT(std::cout << "DEBUG: stopped PANINI Strategy" << std::endl;)
+    std::cout << "Stopped PANINI Strategy" << std::endl;
 }
 
 void my_panini::set_extern_panini_fib_parameter()

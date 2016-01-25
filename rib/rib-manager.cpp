@@ -71,7 +71,8 @@ const RibManager::UnsignedVerbAndProcessor RibManager::UNSIGNED_COMMAND_VERBS[] 
 const Name RibManager::LIST_COMMAND_PREFIX("/localhost/nfd/rib/list");
 const size_t RibManager::LIST_COMMAND_NCOMPS = LIST_COMMAND_PREFIX.size();
 
-const time::seconds RibManager::ACTIVE_FACE_FETCH_INTERVAL = time::seconds(300);
+//const time::seconds RibManager::ACTIVE_FACE_FETCH_INTERVAL = time::seconds(300);
+const time::seconds RibManager::ACTIVE_FACE_FETCH_INTERVAL = time::hours(300);
 
 RibManager::RibManager(ndn::Face& face, ndn::KeyChain& keyChain)
   : m_face(face)

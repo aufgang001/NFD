@@ -27,11 +27,12 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
     , m_my_logger()
     , m_my_panini_fib()
 {
-    std::cout << "Start PANINI Strategy" << std::endl;
+    DOUT(std::cout << "Start PANINI Strategy" << std::endl;);
 
     m_my_panini_fib.set_is_nac(false);
     m_my_panini_fib.set_face_limit_per_entry(1); //lokale interfaces koennen ihre id aendern, wodurch sich auf dauer die Fibsize mit lokalen id füllt
     m_my_panini_fib.set_time_measurement_mode(my_panini_fib::REAL_SECONDS);
+    m_my_panini_fib.set_aggregation_strategy(my_routing_tree::REMOVE);
     set_extern_panini_fib_parameter();
 
     m_my_nac_fib.set_is_nac(false);
@@ -39,7 +40,7 @@ my_panini::my_panini(Forwarder& forwarder, const ndn::Name& name)
 
 my_panini::~my_panini()
 {
-    std::cout << "Stopped PANINI Strategy" << std::endl;
+    DOUT(std::cout << "Stopped PANINI Strategy" << std::endl;);
 }
 
 void my_panini::set_extern_panini_fib_parameter()

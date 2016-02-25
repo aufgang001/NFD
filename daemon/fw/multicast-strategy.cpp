@@ -25,41 +25,55 @@
 
 #include "multicast-strategy.hpp"
 
-namespace nfd {
-namespace fw {
+namespace nfd
+{
+namespace fw
+{
 
 const Name MulticastStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/multicast/%FD%01");
 NFD_REGISTER_STRATEGY(MulticastStrategy);
 
 MulticastStrategy::MulticastStrategy(Forwarder& forwarder, const Name& name)
-  : Strategy(forwarder, name)
-  , m_my_logger()
+    : Strategy(forwarder, name)
+    , m_my_logger()
 {
 }
 
 void
 MulticastStrategy::afterReceiveInterest(const Face& inFace,
-                   const Interest& interest,
-                   shared_ptr<fib::Entry> fibEntry,
-                   shared_ptr<pit::Entry> pitEntry)
+                                        const Interest& interest,
+                                        shared_ptr<fib::Entry> fibEntry,
+                                        shared_ptr<pit::Entry> pitEntry)
 {
-  m_my_logger.log("broadcast", "afterReceiveInterest", interest.getName().toUri());
-  const fib::NextHopList& nexthops = fibEntry->getNextHops();
 
-  for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
-    shared_ptr<Face> outFace = it->getFace();
-    if (pitEntry->canForwardTo(*outFace)) {
-      this->sendInterest(pitEntry, outFace);
+        
+    std::string interest_name = interest.getName().toUri();
+
+    if (my_panini_fib::has_prefix(interest_name, "/nac")) {
+        return; 
+    } else if (my_panini_fib::has_prefix(interest_name, "/nam_msg")) {
+        return;
+    } else if (my_panini_fib::has_prefix(interest_name, "/panini")) {
+        m_my_logger.log("panini", "afterRecvInterest", interest_name, 0);
     }
-  }
 
-  if (!pitEntry->hasUnexpiredOutRecords()) {
-    this->rejectPendingInterest(pitEntry);
-  }
+    const fib::NextHopList& nexthops = fibEntry->getNextHops();
+
+    for (fib::NextHopList::const_iterator it = nexthops.begin(); it != nexthops.end(); ++it) {
+        shared_ptr<Face> outFace = it->getFace();
+        if (pitEntry->canForwardTo(*outFace)) {
+            this->sendInterest(pitEntry, outFace);
+            m_my_logger.log("panini", "afterSendBroadcastInterest", interest_name);
+        }
+    }
+
+    if (!pitEntry->hasUnexpiredOutRecords()) {
+        this->rejectPendingInterest(pitEntry);
+    }
 }
 
 void MulticastStrategy::beforeSatisfyInterest(shared_ptr<pit::Entry> pitEntry,
-                                       const Face& inFace, const Data& data)
+        const Face& inFace, const Data& data)
 {
     m_my_logger.log("broadcast", "beforeSatisfyInterest", data.getName().toUri());
 }

@@ -28,6 +28,7 @@
 
 #include "strategy.hpp"
 #include "my_logger/my_logger.hpp"
+#include "my_panini_fib/my_panini_fib.hpp"
 
 namespace nfd {
 namespace fw {
